@@ -2,7 +2,7 @@
 
 import Script from "next/script";
 import { useMemo, useState } from "react";
-import { SkyMapCard } from "@/skymap/SkyMapCard";
+import { SkyMapCard } from "skymap-widget";
 import { createPublicSkyMapDataSource } from "@/skymap/publicDataSource";
 
 // SkyMapCard's own Aladin-init effect runs once on mount and bails silently (no retry) if

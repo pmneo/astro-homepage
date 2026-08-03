@@ -1,8 +1,8 @@
-import type { SchedulerJob } from "@/api/types";
-import type { SkyMapDataSource } from "./dataSource";
 import type {
+  SchedulerJob,
+  SkyMapDataSource,
   ObservatoryInfo, ArtificialHorizonRegion, AstrobinFootprint, AstrobinImageDetail, SurveyOption,
-} from "./types";
+} from "skymap-widget";
 
 /** Public HiPS surveys only — KStarsCluster's own liveDataSource.ts also offers NSNS custom
  *  palettes (Hα/[OIII]/[SII] combos rendered from the user's own live-captured data via its own

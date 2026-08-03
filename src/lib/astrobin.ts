@@ -1,0 +1,307 @@
+/**
+ * Server-side AstroBin client. AstroBin's own Angular frontend (app.astrobin.com/u/<username>)
+ * calls a handful of unauthenticated, CORS-free JSON endpoints to render itself — found by
+ * inspecting its network traffic. None of them send an Access-Control-Allow-Origin header, so a
+ * browser can't call them directly from our own origin; this runs server-side (where CORS
+ * doesn't apply) and caches results, mirroring the approach KStarsCluster's
+ * AstrobinProxyServlet.java already uses for the site owner's own dashboard.
+ */
+
+const API_BASE = "https://app.astrobin.com/api/v2";
+
+// AstroBin's CDN sits behind Cloudflare bot-protection that 403s requests with no/unusual
+// User-Agent — a plain server-side fetch with an ordinary browser UA passes fine.
+const USER_AGENT =
+  "Mozilla/5.0 (compatible; astro-homepage/1.0) AstroHomepageBot";
+
+const IMAGE_CONTENT_TYPE_ID = 19;
+const IMAGE_REVISION_CONTENT_TYPE_ID = 20;
+const SOLUTION_BATCH_SIZE = 50;
+
+// A published gallery doesn't change minute to minute — re-fetching a few hundred images' worth
+// of metadata plus plate-solve data on every page load would be slow and needlessly heavy on
+// AstroBin's own (undocumented, unauthenticated) API.
+const GALLERY_CACHE_TTL_MS = 60 * 60 * 1000;
+const USER_ID_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export interface GalleryImage {
+  hash: string;
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  widthPx: number;
+  heightPx: number;
+}
+
+export interface AstrobinFootprint {
+  hash: string;
+  title: string;
+  url: string;
+  thumbnailUrl: string | null;
+  corners?: [number, number][];
+  ra?: number;
+  dec?: number;
+  widthDeg?: number;
+  heightDeg?: number;
+  orientationDeg?: number;
+}
+
+export interface ImageDetail {
+  title: string;
+  url: string;
+  date: string | null;
+}
+
+interface CacheEntry<T> {
+  value: T;
+  at: number;
+}
+
+const userIdCache = new Map<string, CacheEntry<number | null>>();
+const galleryCache = new Map<string, CacheEntry<GalleryImage[]>>();
+const footprintsCache = new Map<string, CacheEntry<AstrobinFootprint[]>>();
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  const res = await fetch(url, {
+    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as T;
+}
+
+/** Resolves an AstroBin username to its numeric user id (needed by every other endpoint here) —
+ *  cached for a day since a username<->id mapping is effectively permanent. */
+export async function resolveUsername(username: string): Promise<number | null> {
+  const key = username.trim().toLowerCase();
+  const cached = userIdCache.get(key);
+  if (cached && Date.now() - cached.at < USER_ID_CACHE_TTL_MS) return cached.value;
+
+  const users = await fetchJson<Array<{ id: number }>>(
+    `${API_BASE}/common/users/?username=${encodeURIComponent(key)}`,
+  );
+  const id = users && users.length > 0 ? users[0].id : null;
+  userIdCache.set(key, { value: id, at: Date.now() });
+  return id;
+}
+
+/** The "regular" thumbnail alias preserves the image's real aspect ratio (unlike the square-cropped
+ *  gallery thumbnail), which matters once we lay images out as sky-map footprints. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractThumbnailUrl(image: any): string | null {
+  const thumbnails = image?.thumbnails;
+  if (Array.isArray(thumbnails)) {
+    const regular = thumbnails.find((t) => t?.alias === "regular");
+    if (regular?.url) return String(regular.url);
+  }
+  return image?.finalGalleryThumbnail ? String(image.finalGalleryThumbnail) : null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function finalRevision(image: any): any | null {
+  const revisions = image?.revisions;
+  if (!Array.isArray(revisions)) return null;
+  return revisions.find((r) => r?.isFinal === true) ?? null;
+}
+
+/** Images with edit history carry their own plate-solve per revision (content-type 20) rather
+ *  than the base Image id (content-type 19) — using the wrong one can attach a stale, differently
+ *  oriented solve from a since-replaced upload. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function solutionKey(image: any): string {
+  const revision = finalRevision(image);
+  return revision
+    ? `${IMAGE_REVISION_CONTENT_TYPE_ID}:${revision.pk}`
+    : `${IMAGE_CONTENT_TYPE_ID}:${image.pk}`;
+}
+
+/** Pages through the same lightweight listing app.astrobin.com/u/<username> itself renders from. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllImages(userId: number): Promise<any[]> {
+  const images: unknown[] = [];
+  let page = 1;
+  for (;;) {
+    const url = `${API_BASE}/images/image/?user=${userId}&page=${page}&gallery-serializer=1&subsection=uploaded`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pageResult = await fetchJson<any>(url);
+    if (!pageResult) break;
+    if (Array.isArray(pageResult.results)) images.push(...pageResult.results);
+    if (!pageResult.next) break;
+    page++;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return images as any[];
+}
+
+/** AstroBin's plate-solving results live behind a separate endpoint keyed by Django
+ *  content-type/object-id, fetched in batches (it accepts a comma-separated id list per request)
+ *  rather than one round trip per image. */
+async function fetchSolutions(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  images: any[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<Map<string, any>> {
+  const idsByContentType = new Map<number, number[]>();
+  for (const image of images) {
+    const revision = finalRevision(image);
+    const contentType = revision ? IMAGE_REVISION_CONTENT_TYPE_ID : IMAGE_CONTENT_TYPE_ID;
+    const objectId = Number(revision ? revision.pk : image.pk);
+    if (!idsByContentType.has(contentType)) idsByContentType.set(contentType, []);
+    idsByContentType.get(contentType)!.push(objectId);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const byKey = new Map<string, any>();
+  for (const [contentType, ids] of idsByContentType) {
+    for (let start = 0; start < ids.length; start += SOLUTION_BATCH_SIZE) {
+      const batch = ids.slice(start, start + SOLUTION_BATCH_SIZE);
+      const url = `${API_BASE}/platesolving/solutions/?content_type=${contentType}&object_ids=${batch.join(",")}`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const solutions = await fetchJson<any[]>(url);
+      if (!solutions) continue;
+      for (const solution of solutions) {
+        if (solution?.object_id != null) byKey.set(`${contentType}:${solution.object_id}`, solution);
+      }
+    }
+  }
+  return byKey;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function preferAdvanced(solution: any, advancedKey: string, basicKey: string): number {
+  const advanced = solution?.[advancedKey];
+  if (advanced !== null && advanced !== undefined && advanced !== "") return Number(advanced);
+  return Number(solution?.[basicKey] ?? 0);
+}
+
+/** AstroBin's "advanced" (distortion-corrected) solve reports real RA/Dec for all four corners
+ *  directly — using these outright sidesteps rotation sign/handedness conventions entirely, which
+ *  turned out to be genuinely ambiguous on this gallery (see AstrobinProxyServlet.java for the
+ *  full story). Returned [top-left, top-right, bottom-right, bottom-left]. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractAdvancedCorners(solution: any): [number, number][] | null {
+  const keys = [
+    "advanced_ra_top_left", "advanced_dec_top_left",
+    "advanced_ra_top_right", "advanced_dec_top_right",
+    "advanced_ra_bottom_right", "advanced_dec_bottom_right",
+    "advanced_ra_bottom_left", "advanced_dec_bottom_left",
+  ];
+  const values: number[] = [];
+  for (const key of keys) {
+    const v = solution?.[key];
+    if (v === null || v === undefined || v === "") return null;
+    values.push(Number(v));
+  }
+  return [
+    [values[0], values[1]],
+    [values[2], values[3]],
+    [values[4], values[5]],
+    [values[6], values[7]],
+  ];
+}
+
+/** The gallery listing for the page itself — title/hash/thumbnail, no astrometry. */
+export async function getGallery(username: string): Promise<GalleryImage[] | null> {
+  const key = username.trim().toLowerCase();
+  const cached = galleryCache.get(key);
+  if (cached && Date.now() - cached.at < GALLERY_CACHE_TTL_MS) return cached.value;
+
+  const userId = await resolveUsername(username);
+  if (userId === null) return null;
+
+  const images = await fetchAllImages(userId);
+  const gallery: GalleryImage[] = images.map((image) => {
+    const revision = finalRevision(image);
+    const dims = revision ?? image;
+    return {
+      hash: String(image.hash),
+      title: image.title ? String(image.title) : "Untitled",
+      url: `https://app.astrobin.com/i/${image.hash}`,
+      thumbnailUrl: extractThumbnailUrl(image),
+      widthPx: Number(dims?.w ?? 0),
+      heightPx: Number(dims?.h ?? 0),
+    };
+  });
+
+  galleryCache.set(key, { value: gallery, at: Date.now() });
+  return gallery;
+}
+
+/** Plate-solved footprints for the sky map — same image listing, joined with the solutions
+ *  endpoint, corners preferred over reconstructing a rectangle from center+size+orientation. */
+export async function getFootprints(username: string): Promise<AstrobinFootprint[] | null> {
+  const key = username.trim().toLowerCase();
+  const cached = footprintsCache.get(key);
+  if (cached && Date.now() - cached.at < GALLERY_CACHE_TTL_MS) return cached.value;
+
+  const userId = await resolveUsername(username);
+  if (userId === null) return null;
+
+  const images = await fetchAllImages(userId);
+  const solutionsByKey = await fetchSolutions(images);
+
+  const footprints: AstrobinFootprint[] = [];
+  for (const image of images) {
+    const solution = solutionsByKey.get(solutionKey(image));
+    if (!solution) continue; // not (yet) plate-solved
+
+    const footprint: AstrobinFootprint = {
+      hash: String(image.hash),
+      title: image.title ? String(image.title) : "Untitled",
+      url: `https://app.astrobin.com/i/${image.hash}`,
+      thumbnailUrl: extractThumbnailUrl(image),
+    };
+
+    const corners = extractAdvancedCorners(solution);
+    if (corners) {
+      footprint.corners = corners;
+    } else {
+      const revision = finalRevision(image);
+      const dims = revision ?? image;
+      const pixscale = preferAdvanced(solution, "advanced_pixscale", "pixscale");
+      const w = Number(dims?.w ?? 0);
+      const h = Number(dims?.h ?? 0);
+      if (pixscale <= 0 || w <= 0 || h <= 0) continue;
+
+      footprint.ra = preferAdvanced(solution, "advanced_ra", "ra");
+      footprint.dec = preferAdvanced(solution, "advanced_dec", "dec");
+      footprint.widthDeg = (w * pixscale) / 3600;
+      footprint.heightDeg = (h * pixscale) / 3600;
+      footprint.orientationDeg = preferAdvanced(solution, "advanced_orientation", "orientation");
+    }
+    footprints.push(footprint);
+  }
+
+  footprintsCache.set(key, { value: footprints, at: Date.now() });
+  return footprints;
+}
+
+/** On-demand image detail (capture date) — the lightweight gallery listing has no acquisition-date
+ *  field at all; only the full per-image detail carries "deepSkyAcquisitions". Reports the
+ *  [min, max] session date range as a single string (a plain date if it's all one night). */
+export async function getImageDetail(hash: string): Promise<ImageDetail | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = await fetchJson<any>(`${API_BASE}/images/image/?hash=${encodeURIComponent(hash)}`);
+  if (!page || !Array.isArray(page.results) || page.results.length === 0) return null;
+  const image = page.results[0];
+
+  const acquisitions = image.deepSkyAcquisitions;
+  let date: string | null = null;
+  if (Array.isArray(acquisitions)) {
+    let min: string | null = null;
+    let max: string | null = null;
+    for (const entry of acquisitions) {
+      const d = entry?.date;
+      if (!d) continue;
+      const dateStr = String(d);
+      if (min === null || dateStr < min) min = dateStr;
+      if (max === null || dateStr > max) max = dateStr;
+    }
+    date = min === null ? null : min === max ? min : `${min} – ${max}`;
+  }
+
+  return {
+    title: image.title ? String(image.title) : "Untitled",
+    url: `https://app.astrobin.com/i/${hash}`,
+    date,
+  };
+}

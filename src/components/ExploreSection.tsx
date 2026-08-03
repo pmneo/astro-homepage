@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Section from "./Section";
 import AstrobinGalleryGrid from "./AstrobinGalleryGrid";
-import AstrobinSkyMap from "./AstrobinSkyMap";
+import PublicSkyMap from "./PublicSkyMap";
 
 export default function ExploreSection() {
   const [inputValue, setInputValue] = useState("");
@@ -40,7 +40,7 @@ export default function ExploreSection() {
         // mount is what resets them to a clean loading state for the new user.
         <div key={submittedUsername} className="space-y-10">
           <AstrobinGalleryGrid username={submittedUsername} limit={8} />
-          <AstrobinSkyMap username={submittedUsername} />
+          <PublicSkyMap username={submittedUsername} />
         </div>
       )}
     </Section>

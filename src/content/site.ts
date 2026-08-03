@@ -1,5 +1,8 @@
 /** Central place for the content that isn't fetched live from AstroBin — edit this file to make
- *  the site yours. Everything under `equipment` is a placeholder; replace with your real gear. */
+ *  the site yours. `equipment` was pulled from the imagingTelescopes2/mounts2/filters2/etc.
+ *  fields AstroBin's own API attaches to your recent uploads (excluding the OP7 image, which is
+ *  someone else's collaboration project you're only a contributor on) — re-run that lookup if
+ *  your setup changes rather than hand-editing stale gear here. */
 
 export const site = {
   name: "pmneo",
@@ -21,19 +24,49 @@ export const site = {
   equipment: [
     {
       category: "Mount",
-      items: [{ name: "TODO: your mount", note: "e.g. Skywatcher EQ6-R Pro" }],
+      items: [{ name: "Sky-Watcher EQ8", note: "Equatorial, 50 kg payload" }],
     },
     {
-      category: "Optics",
-      items: [{ name: "TODO: your telescope(s)", note: "e.g. 2x refractor cluster" }],
+      category: "Imaging optics",
+      items: [{ name: "Sky-Watcher Esprit 100ED", note: "100mm apo triplet refractor, 550mm FL" }],
     },
     {
       category: "Imaging camera",
-      items: [{ name: "TODO: your camera", note: "e.g. ASI2600MM Pro + filter wheel" }],
+      items: [{ name: "ZWO ASI2600MM Pro", note: "Cooled mono, dedicated deep-sky" }],
     },
     {
-      category: "Observatory",
-      items: [{ name: "TODO: your setup", note: "e.g. roll-off-roof shed, remote controlled" }],
+      category: "Filters",
+      items: [
+        { name: "Astronomik LRGB", note: "Deep-Sky L/R/G/B, 36mm" },
+        { name: "Astronomik Ha/OIII/SII 6nm", note: "Narrowband CCD set, 36mm" },
+        { name: "Antlia 3nm OIII", note: "Narrowband, 36mm" },
+      ],
+    },
+    {
+      category: "Guiding",
+      items: [
+        { name: "SVBony SV106", note: "50mm guide scope" },
+        { name: "ZWO ASI120MM Mini", note: "Guide camera" },
+      ],
+    },
+    {
+      category: "Accessories",
+      items: [
+        { name: "APM-Riccardi 0.75x reducer/corrector", note: "M63" },
+        { name: "ZWO EFW 7×36mm", note: "Motorized filter wheel" },
+        { name: "DeepSkyDad AF3", note: "Autofocuser" },
+        { name: "Pegasus Astro Falcon Rotator", note: "Field derotator" },
+      ],
+    },
+    {
+      category: "Software",
+      items: [
+        { name: "PixInsight" },
+        { name: "Astro Pixel Processor" },
+        { name: "Adobe Photoshop" },
+        { name: "SetiAstro Suite Pro" },
+        { name: "KStarsCluster", note: "Own capture/scheduling app" },
+      ],
     },
   ],
 };

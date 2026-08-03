@@ -7,7 +7,17 @@
  * AstrobinProxyServlet.java already uses for the site owner's own dashboard.
  */
 
+import { cachedImageUrl } from "./imageCache";
+import { readCachedJson, writeCachedJson } from "./diskCache";
+
 const API_BASE = "https://app.astrobin.com/api/v2";
+
+// Disk-backed second-level cache (see diskCache.ts) behind the in-memory Maps below — an
+// in-memory Map alone resets on every restart/redeploy and isn't shared if Plesk's Node.js
+// Toolkit ever runs more than one worker process for this app. Not used for "no such user"
+// results: those are cheap/rare enough to just re-check live rather than worry about disk-cache
+// null-vs-absent ambiguity.
+const ASTROBIN_META_NAMESPACE = "astrobin-meta";
 
 // AstroBin's CDN sits behind Cloudflare bot-protection that 403s requests with no/unusual
 // User-Agent — a plain server-side fetch with an ordinary browser UA passes fine.
@@ -76,24 +86,33 @@ export async function resolveUsername(username: string): Promise<number | null> 
   const cached = userIdCache.get(key);
   if (cached && Date.now() - cached.at < USER_ID_CACHE_TTL_MS) return cached.value;
 
+  const diskCached = await readCachedJson<number>(ASTROBIN_META_NAMESPACE, `userid:${key}`, USER_ID_CACHE_TTL_MS);
+  if (diskCached !== null) {
+    userIdCache.set(key, { value: diskCached, at: Date.now() });
+    return diskCached;
+  }
+
   const users = await fetchJson<Array<{ id: number }>>(
     `${API_BASE}/common/users/?username=${encodeURIComponent(key)}`,
   );
   const id = users && users.length > 0 ? users[0].id : null;
   userIdCache.set(key, { value: id, at: Date.now() });
+  if (id !== null) await writeCachedJson(ASTROBIN_META_NAMESPACE, `userid:${key}`, id);
   return id;
 }
 
 /** The "regular" thumbnail alias preserves the image's real aspect ratio (unlike the square-cropped
- *  gallery thumbnail), which matters once we lay images out as sky-map footprints. */
+ *  gallery thumbnail), which matters once we lay images out as sky-map footprints. Rewritten to go
+ *  through our own /api/image-cache rather than linking straight to cdn.astrobin.com, so repeat
+ *  visits don't depend on AstroBin's own CDN latency. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractThumbnailUrl(image: any): string | null {
   const thumbnails = image?.thumbnails;
   if (Array.isArray(thumbnails)) {
     const regular = thumbnails.find((t) => t?.alias === "regular");
-    if (regular?.url) return String(regular.url);
+    if (regular?.url) return cachedImageUrl(String(regular.url));
   }
-  return image?.finalGalleryThumbnail ? String(image.finalGalleryThumbnail) : null;
+  return image?.finalGalleryThumbnail ? cachedImageUrl(String(image.finalGalleryThumbnail)) : null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,6 +224,12 @@ export async function getGallery(username: string): Promise<GalleryImage[] | nul
   const cached = galleryCache.get(key);
   if (cached && Date.now() - cached.at < GALLERY_CACHE_TTL_MS) return cached.value;
 
+  const diskCached = await readCachedJson<GalleryImage[]>(ASTROBIN_META_NAMESPACE, `gallery:${key}`, GALLERY_CACHE_TTL_MS);
+  if (diskCached !== null) {
+    galleryCache.set(key, { value: diskCached, at: Date.now() });
+    return diskCached;
+  }
+
   const userId = await resolveUsername(username);
   if (userId === null) return null;
 
@@ -223,6 +248,7 @@ export async function getGallery(username: string): Promise<GalleryImage[] | nul
   });
 
   galleryCache.set(key, { value: gallery, at: Date.now() });
+  await writeCachedJson(ASTROBIN_META_NAMESPACE, `gallery:${key}`, gallery);
   return gallery;
 }
 
@@ -232,6 +258,12 @@ export async function getFootprints(username: string): Promise<AstrobinFootprint
   const key = username.trim().toLowerCase();
   const cached = footprintsCache.get(key);
   if (cached && Date.now() - cached.at < GALLERY_CACHE_TTL_MS) return cached.value;
+
+  const diskCached = await readCachedJson<AstrobinFootprint[]>(ASTROBIN_META_NAMESPACE, `footprints:${key}`, GALLERY_CACHE_TTL_MS);
+  if (diskCached !== null) {
+    footprintsCache.set(key, { value: diskCached, at: Date.now() });
+    return diskCached;
+  }
 
   const userId = await resolveUsername(username);
   if (userId === null) return null;
@@ -272,7 +304,19 @@ export async function getFootprints(username: string): Promise<AstrobinFootprint
   }
 
   footprintsCache.set(key, { value: footprints, at: Date.now() });
+  await writeCachedJson(ASTROBIN_META_NAMESPACE, `footprints:${key}`, footprints);
   return footprints;
+}
+
+/** Clears just this process's in-memory first-level cache — called by /api/cache/evict so an
+ *  eviction takes effect immediately in whichever worker handles that request, rather than only
+ *  once its own TTL happens to expire (disk eviction alone doesn't help with that, since a
+ *  not-yet-expired in-memory entry is checked first). Other worker processes' in-memory caches
+ *  still self-heal within GALLERY_CACHE_TTL_MS/USER_ID_CACHE_TTL_MS regardless, once disk is gone. */
+export function clearMemoryCache(): void {
+  userIdCache.clear();
+  galleryCache.clear();
+  footprintsCache.clear();
 }
 
 /** On-demand image detail (capture date) — the lightweight gallery listing has no acquisition-date

@@ -40,6 +40,12 @@ yarn-error.log*
 # IDE
 .idea/
 
+# on-disk caches (HiPS tiles, cached AstroBin images) — see src/lib/diskCache.ts
+/.cache/
+
+# fetched by scripts/fetch-vendor.mjs, not committed (same as KStarsCluster's own websrc)
+/public/vendor/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

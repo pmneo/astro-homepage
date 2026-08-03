@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Fetched by scripts/fetch-vendor.mjs (see its own comment) — a minified third-party bundle,
+    // not our source.
+    "public/vendor/**",
   ]),
 ]);
 

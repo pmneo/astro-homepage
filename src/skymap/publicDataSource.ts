@@ -3,13 +3,15 @@ import type {
   SkyMapDataSource,
   ObservatoryInfo, ArtificialHorizonRegion, AstrobinFootprint, AstrobinImageDetail, SurveyOption,
 } from "skymap-widget";
+import { OBSERVATORY_LOCATION, ARTIFICIAL_HORIZON, TERRAIN_IMAGE_URL } from "./observatoryConfig";
 
-/** Public HiPS surveys only — KStarsCluster's own liveDataSource.ts also offers NSNS custom
- *  palettes (Hα/[OIII]/[SII] combos rendered from the user's own live-captured data via its own
- *  HipsProxyServlet), which have no equivalent without that backend running. DSS2/2MASS are Aladin
- *  CDS's own public registry entries, so `builtin` needs no proxy at all. SkyMapCard.tsx defaults
- *  to whichever entry is listed first. */
+/** sho/hso are this site's own /api/hips proxy (see src/lib/hips.ts) — a public-site-side port of
+ *  KStarsCluster's HipsProxyServlet, recombining simg.de's public NSNS survey rather than needing
+ *  that live backend. DSS2/2MASS are Aladin CDS's own public registry entries needing no proxy at
+ *  all. SkyMapCard.tsx defaults to whichever entry is listed first. */
 const publicSurveys: SurveyOption[] = [
+  { id: "sho", label: "SHO (Hubble palette)", custom: { url: "/api/hips/sho", frame: "equatorial", order: 6 } },
+  { id: "hso", label: "HSO (Hα/[SII]/[OIII])", custom: { url: "/api/hips/hso", frame: "equatorial", order: 6 } },
   { id: "dss2-color", label: "DSS2 (color)", builtin: "P/DSS2/color" },
   { id: "dss2-red", label: "DSS2 (red)", builtin: "P/DSS2/red" },
   { id: "2mass-color", label: "2MASS (color)", builtin: "P/2MASS/color" },
@@ -29,24 +31,19 @@ async function fetchAstrobinImageDetail(username: string, hash: string): Promise
 }
 
 /** SkyMapCard's data source for the public site — the AstroBin-backed methods are real (proxied
- *  through our own /api/astrobin routes, see lib/astrobin.ts); everything that depends on a live
- *  KStarsCluster backend (mount/scheduler state, artificial horizon, a Terrain panorama) has no
- *  public equivalent, so those report "not configured" and SkyMapCard already degrades gracefully
- *  for that (see isValidLocation/hasTerrain checks throughout SkyMapCard.tsx) — same as it would
- *  for anyone who's never set a location in KStars itself.
- *
- *  TODO: replace the -999/-999 sentinel below with the observatory's real latitude/longitude to
- *  enable zenith-lock and the horizon/visibility charts on the public map. */
+ *  through our own /api/astrobin routes, see lib/astrobin.ts). Location/horizon/terrain are the
+ *  real Heimsternwarte config (see observatoryConfig.ts) rather than a live fetch — this site has
+ *  no access to KStarsCluster's own backend/database, so they're a point-in-time copy instead. */
 export function createPublicSkyMapDataSource(username: string): SkyMapDataSource {
   return {
     async getObservatoryInfo(): Promise<ObservatoryInfo> {
-      return { latitude: -999, longitude: -999, terrainCorrectAz: 0, terrainCorrectAlt: 0, hasTerrain: false };
+      return { ...OBSERVATORY_LOCATION, hasTerrain: true };
     },
     async getArtificialHorizon(): Promise<ArtificialHorizonRegion[]> {
-      return [];
+      return ARTIFICIAL_HORIZON;
     },
     getTerrainImageUrl(): string {
-      return "";
+      return TERRAIN_IMAGE_URL;
     },
     getAstrobinFootprints: () => fetchAstrobinFootprints(username),
     getAstrobinImageDetail: (hash: string) => fetchAstrobinImageDetail(username, hash),

@@ -9,11 +9,9 @@ const nextConfig: NextConfig = {
   // transpiles the app's own source by default, so anything imported from node_modules needs an
   // explicit opt-in to go through the same pipeline instead of being loaded as pre-built JS.
   transpilePackages: ["skymap-widget"],
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "cdn.astrobin.com" },
-    ],
-  },
+  // No remotePatterns needed: gallery/footprint thumbnails are all rewritten to same-origin
+  // /api/image-cache URLs server-side (see lib/imageCache.ts) rather than linked to
+  // cdn.astrobin.com directly.
 };
 
 export default nextConfig;

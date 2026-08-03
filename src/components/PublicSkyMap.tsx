@@ -11,7 +11,9 @@ import { createPublicSkyMapDataSource } from "@/skymap/publicDataSource";
 // wrapper gates rendering SkyMapCard at all until it's confirmed ready. (window.A itself is
 // already declared globally by SkyMapCard.tsx.)
 
-const ALADIN_SRC = "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js";
+// Self-hosted (see scripts/fetch-vendor.mjs) rather than loaded from aladin.cds.unistra.fr
+// directly — that was noticeably slow (external DNS/TLS + their own server, no CDN edge nearby).
+const ALADIN_SRC = "/vendor/aladin/aladin.js";
 
 interface Props {
   username: string;

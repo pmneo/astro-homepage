@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/fetch-vendor.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/fetch-vendor.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -13,6 +15,7 @@
     "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sharp": "^0.35.3",
     "skymap-widget": "github:pmneo/skymap-widget"
   },
   "devDependencies": {

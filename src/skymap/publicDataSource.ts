@@ -6,16 +6,18 @@ import type {
 import { OBSERVATORY_LOCATION, ARTIFICIAL_HORIZON, TERRAIN_IMAGE_URL } from "./observatoryConfig";
 import { site } from "@/content/site";
 
-/** sho/hso are this site's own /api/hips proxy (see src/lib/hips.ts) — a public-site-side port of
- *  KStarsCluster's HipsProxyServlet, recombining simg.de's public NSNS survey rather than needing
- *  that live backend. DSS2/2MASS are Aladin CDS's own public registry entries needing no proxy at
- *  all. SkyMapCard.tsx defaults to whichever entry is listed first. */
+/** Every survey routed through this site's own /api/hips proxy (see src/lib/hips.ts) rather than
+ *  letting Aladin fetch any of them directly — DSS2/2MASS used to be Aladin's own `builtin` CDS
+ *  registry entries, but Aladin's default pick for P/DSS2/color (irsa.ipac.caltech.edu) sends no
+ *  CORS header, so the *browser* fetch fails once (visible as a console error) before Aladin falls
+ *  back to a mirror. Proxying server-side sidesteps that entirely — CORS doesn't apply there.
+ *  SkyMapCard.tsx defaults to whichever entry is listed first. */
 const publicSurveys: SurveyOption[] = [
   { id: "sho", label: "SHO (Hubble palette)", custom: { url: "/api/hips/sho", frame: "equatorial", order: 6 } },
   { id: "hso", label: "HSO (Hα/[SII]/[OIII])", custom: { url: "/api/hips/hso", frame: "equatorial", order: 6 } },
-  { id: "dss2-color", label: "DSS2 (color)", builtin: "P/DSS2/color" },
-  { id: "dss2-red", label: "DSS2 (red)", builtin: "P/DSS2/red" },
-  { id: "2mass-color", label: "2MASS (color)", builtin: "P/2MASS/color" },
+  { id: "dss2-color", label: "DSS2 (color)", custom: { url: "/api/hips/dss2-color", frame: "equatorial", order: 9 } },
+  { id: "dss2-red", label: "DSS2 (red)", custom: { url: "/api/hips/dss2-red", frame: "equatorial", order: 9 } },
+  { id: "2mass-color", label: "2MASS (color)", custom: { url: "/api/hips/2mass-color", frame: "equatorial", order: 9 } },
 ];
 
 async function fetchAstrobinFootprints(username: string): Promise<AstrobinFootprint[]> {

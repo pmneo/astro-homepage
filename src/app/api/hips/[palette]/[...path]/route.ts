@@ -14,7 +14,9 @@ export async function GET(
 
   if (joined === "properties") {
     const origin = new URL(req.url).origin;
-    return new NextResponse(getHipsProperties(palette, origin), {
+    const properties = getHipsProperties(palette, origin);
+    if (!properties) return NextResponse.json({ error: "unknown palette" }, { status: 404 });
+    return new NextResponse(properties, {
       headers: { "Content-Type": "text/plain;charset=utf-8", "Cache-Control": "public, max-age=3600" },
     });
   }

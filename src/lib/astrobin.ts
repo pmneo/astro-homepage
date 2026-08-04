@@ -41,6 +41,16 @@ export interface GalleryImage {
   thumbnailUrl: string | null;
   widthPx: number;
   heightPx: number;
+  viewCount: number;
+  likeCount: number;
+  bookmarkCount: number;
+  commentCount: number;
+  /** Non-empty when other AstroBin users are credited alongside the uploader — note this list
+   *  itself never includes the uploader, so "any entries at all" already means "collaboration". */
+  collaboratorUsernames: string[];
+  /** At most one badge really applies at a time in practice — IOTD implies it was a top pick
+   *  first, and AstroBin itself only ever highlights the highest one a given image reached. */
+  badge: "iotd" | "top-pick" | "top-pick-nomination" | null;
 }
 
 export interface AstrobinFootprint {
@@ -113,6 +123,28 @@ function extractThumbnailUrl(image: any): string | null {
     if (regular?.url) return cachedImageUrl(String(regular.url));
   }
   return image?.finalGalleryThumbnail ? cachedImageUrl(String(image.finalGalleryThumbnail)) : null;
+}
+
+/** AstroBin's own "collaborators" list never includes the uploader themselves — so any entries at
+ *  all already means "this wasn't a solo image", regardless of who uploaded it. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractCollaboratorUsernames(image: any): string[] {
+  const collaborators = image?.collaborators;
+  if (!Array.isArray(collaborators)) return [];
+  return collaborators
+    .map((c) => (c?.displayName ? String(c.displayName) : c?.username ? String(c.username) : null))
+    .filter((name): name is string => name !== null);
+}
+
+/** Only the single highest badge an image reached — AstroBin's own gallery only ever shows one,
+ *  and isIotd/isTopPick/isTopPickNomination aren't mutually exclusive in the raw data (an IOTD was
+ *  necessarily a top pick first, so both flags stay true afterwards). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractBadge(image: any): GalleryImage["badge"] {
+  if (image?.isIotd) return "iotd";
+  if (image?.isTopPick) return "top-pick";
+  if (image?.isTopPickNomination) return "top-pick-nomination";
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -244,6 +276,12 @@ export async function getGallery(username: string): Promise<GalleryImage[] | nul
       thumbnailUrl: extractThumbnailUrl(image),
       widthPx: Number(dims?.w ?? 0),
       heightPx: Number(dims?.h ?? 0),
+      viewCount: Number(image.viewCount ?? 0),
+      likeCount: Number(image.likeCount ?? 0),
+      bookmarkCount: Number(image.bookmarkCount ?? 0),
+      commentCount: Number(image.commentCount ?? 0),
+      collaboratorUsernames: extractCollaboratorUsernames(image),
+      badge: extractBadge(image),
     };
   });
 

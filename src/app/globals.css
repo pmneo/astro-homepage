@@ -24,3 +24,14 @@ h2,
 h3 {
   font-family: var(--font-display), var(--font-sans), sans-serif;
 }
+
+/* Indeterminate loading bar (ExploreSection, while waiting on the AstroBin index) — a sliding
+ * segment rather than a determinate fill, since fetch progress genuinely isn't measurable here. */
+@keyframes loading-bar-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}

@@ -1,8 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Section from "./Section";
 import PublicSkyMap from "./PublicSkyMap";
+
+type IndexState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready" };
+
+function LoadingBar() {
+  return (
+    <div className="h-1 w-full max-w-md overflow-hidden rounded-full bg-slate-800">
+      <div
+        className="h-full w-1/3 rounded-full bg-cyan-400"
+        style={{ animation: "loading-bar-slide 1.1s ease-in-out infinite" }}
+      />
+    </div>
+  );
+}
+
+/** One mount per lookup (see key={username} at the call site — that's what gives each new
+ *  username a clean "loading" state instead of a stale result flashing first) — confirms the
+ *  AstroBin index is actually fetched (username resolves, footprints available) before mounting
+ *  PublicSkyMap at all. SkyMapCard's own internal fetch would otherwise render the full
+ *  (currently-empty) sky map UI immediately and only fill in footprints once they arrive, which
+ *  reads as "it's broken" for a moment rather than "it's loading". The same /footprints route
+ *  PublicSkyMap's data source calls internally is cheap to call again here — server-side caching
+ *  (see lib/astrobin.ts) means this doesn't hit AstroBin twice. */
+function AstrobinIndexGate({ username }: { username: string }) {
+  const [state, setState] = useState<IndexState>({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/astrobin/${encodeURIComponent(username)}/footprints`)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(res.status === 404 ? `No AstroBin user named "${username}"` : "AstroBin is unreachable right now");
+        }
+        if (!cancelled) setState({ status: "ready" });
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setState({ status: "error", message: err.message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [username]);
+
+  if (state.status === "loading") return <LoadingBar />;
+  if (state.status === "error") return <p className="text-rose-400">{state.message}</p>;
+  return <PublicSkyMap username={username} />;
+}
 
 export default function ExploreSection() {
   const [inputValue, setInputValue] = useState("");
@@ -33,12 +84,7 @@ export default function ExploreSection() {
         </button>
       </form>
 
-      {submittedUsername && (
-        // key={submittedUsername} remounts this on every new lookup — PublicSkyMap loads its
-        // username's data once on mount rather than reacting to prop changes, so a fresh mount is
-        // what resets it to a clean loading state for the new user.
-        <PublicSkyMap key={submittedUsername} username={submittedUsername} />
-      )}
+      {submittedUsername && <AstrobinIndexGate key={submittedUsername} username={submittedUsername} />}
     </Section>
   );
 }

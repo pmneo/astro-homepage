@@ -73,17 +73,36 @@ export async function getHipsTile(palette: string, tilePath: string): Promise<Bu
   return png;
 }
 
-/** Minimal synthetic HiPS properties file — same fixed fields KStarsCluster's own servlet
- *  generates (hips_order/tile_width/tile_format never vary for this palette engine), just with
- *  hips_service_url pointed at this deployment's own proxy route instead. */
+// Channel-order description per palette, for the human-readable obs_description field below —
+// matches OHS_REMAP above (ohs8's own [OIII,Hα,SII] permuted into each palette's R/G/B).
+const CHANNEL_LABELS = ["[OIII]", "Hα", "[SII]"];
+function channelDescription(palette: string): string {
+  const remap = OHS_REMAP[palette];
+  return `R=${CHANNEL_LABELS[remap[0]]}/G=${CHANNEL_LABELS[remap[1]]}/B=${CHANNEL_LABELS[remap[2]]}`;
+}
+
+/** Synthetic HiPS properties file — full field set ported from KStarsCluster's own
+ *  HipsProxyServlet.servePropertiesFile (an earlier, incomplete port here was missing
+ *  dataproduct_type, which Aladin Lite logs as required and — worse — silently left the survey
+ *  object in a state that could trip a "recursive use of an object" wasm-bindgen panic on redraw;
+ *  porting the full set rather than guessing which fields actually matter). */
 export function getHipsProperties(palette: string, origin: string): string {
+  const paletteUpper = palette.toUpperCase();
   return [
+    `obs_collection=Northern Sky Narrowband Survey (${paletteUpper} composite)`,
+    `obs_title=NSNS DR0.2: ${paletteUpper} composite (proxied)`,
+    `obs_description=Server-side ${channelDescription(palette)} composite, permuted from simg.de's own starfull ohs8 survey on the fly.`,
     "hips_frame=equatorial",
     "hips_order=6",
     "hips_order_min=0",
     "hips_tile_width=512",
     "hips_tile_format=png",
+    "hips_status=public master clonable",
+    "hips_version=1.4",
+    "dataproduct_type=image",
+    "client_application=AladinLite",
     `hips_service_url=${origin}/api/hips/${palette}`,
+    `creator_did=ivo://astro-homepage/hips/${palette}`,
     "",
   ].join("\n");
 }

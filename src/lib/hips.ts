@@ -32,19 +32,35 @@ export function isValidHipsTilePath(tilePath: string): boolean {
   return TILE_PATH.test(tilePath);
 }
 
+/** Fetches+caches a path straight from ohs8 unmodified — shared by tile fetching (below) and the
+ *  MOC (Multi-Order Coverage map) file, which needs no channel work since sho/hso cover exactly
+ *  the same sky area as the ohs8 survey they're both derived from. */
+async function fetchOhs8Raw(path: string, ext: string): Promise<Buffer | null> {
+  const cached = await readCached(HIPS_NAMESPACE, `ohs8/${path}`, ext);
+  if (cached) return cached;
+
+  const res = await fetch(`${BASE_URL}ohs8/${path}`);
+  if (!res.ok) return null;
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  await writeCached(HIPS_NAMESPACE, `ohs8/${path}`, ext, buf);
+  return buf;
+}
+
 /** ohs8's own tiles, fetched once and cached regardless of which palette (sho/hso both remap the
  *  same upstream tile) is asking. Sparse HiPS tiles 404 legitimately at deep orders — not cached,
  *  same reasoning as the original servlet (sparseness at one order says nothing about siblings). */
 async function fetchOhs8Tile(tilePath: string): Promise<Buffer | null> {
-  const cached = await readCached(HIPS_NAMESPACE, `ohs8/${tilePath}`, TILE_EXT);
-  if (cached) return cached;
+  return fetchOhs8Raw(tilePath, TILE_EXT);
+}
 
-  const res = await fetch(`${BASE_URL}ohs8/${tilePath}`);
-  if (!res.ok) return null;
-
-  const buf = Buffer.from(await res.arrayBuffer());
-  await writeCached(HIPS_NAMESPACE, `ohs8/${tilePath}`, TILE_EXT, buf);
-  return buf;
+/** The MOC tells Aladin which parts of the sky this HiPS actually has data for (NSNS only covers
+ *  part of the northern sky) — without it, Aladin has no way to know that short of probing tiles,
+ *  and past behavior here was to 400 the request entirely since it matched neither "properties"
+ *  nor a tile path. */
+export async function getHipsMoc(palette: string): Promise<Buffer | null> {
+  if (!OHS_REMAP[palette]) return null;
+  return fetchOhs8Raw("Moc.fits", ".fits");
 }
 
 export async function getHipsTile(palette: string, tilePath: string): Promise<Buffer | null> {

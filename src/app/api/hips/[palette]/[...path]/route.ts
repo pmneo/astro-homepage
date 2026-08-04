@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getHipsProperties, getHipsTile, isValidHipsTilePath, SUPPORTED_HIPS_PALETTES } from "@/lib/hips";
+import { getHipsMoc, getHipsProperties, getHipsTile, isValidHipsTilePath, SUPPORTED_HIPS_PALETTES } from "@/lib/hips";
 
 export async function GET(
   req: Request,
@@ -17,6 +17,18 @@ export async function GET(
     return new NextResponse(getHipsProperties(palette, origin), {
       headers: { "Content-Type": "text/plain;charset=utf-8", "Cache-Control": "public, max-age=3600" },
     });
+  }
+
+  if (joined === "Moc.fits") {
+    try {
+      const moc = await getHipsMoc(palette);
+      if (!moc) return NextResponse.json({ error: "moc not found" }, { status: 404 });
+      return new NextResponse(new Uint8Array(moc), {
+        headers: { "Content-Type": "image/fits", "Cache-Control": "public, max-age=31536000, immutable" },
+      });
+    } catch {
+      return NextResponse.json({ error: "upstream error" }, { status: 502 });
+    }
   }
 
   if (!isValidHipsTilePath(joined)) {

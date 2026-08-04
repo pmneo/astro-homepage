@@ -31,7 +31,7 @@ const SOLUTION_BATCH_SIZE = 50;
 // A published gallery doesn't change minute to minute — re-fetching a few hundred images' worth
 // of metadata plus plate-solve data on every page load would be slow and needlessly heavy on
 // AstroBin's own (undocumented, unauthenticated) API.
-const GALLERY_CACHE_TTL_MS = 60 * 60 * 1000;
+const GALLERY_CACHE_TTL_MS = 5 * 60 * 1000;
 const USER_ID_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface GalleryImage {

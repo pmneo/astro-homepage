@@ -8,7 +8,7 @@ export default function Footer() {
       <div className="flex flex-col items-center gap-6">
         <DonateButton />
         <p className="text-sm text-slate-500">
-          © {new Date().getFullYear()} {site.name} · Images and equipment data via{" "}
+          © {new Date().getFullYear()} {site.name} · Images data via{" "}
           <a
             href={`https://app.astrobin.com/u/${site.astrobinUsername}`}
             target="_blank"

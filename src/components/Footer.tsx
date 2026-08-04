@@ -18,7 +18,27 @@ export default function Footer() {
             AstroBin
           </a>
         </p>
+        <BuildInfo />
       </div>
     </Section>
+  );
+}
+
+/** Which commit this deploy is actually running — set at build time from the git checkout being
+ *  built (see next.config.ts's getGitSha), not a Plesk-configured env var, so it can't silently go
+ *  stale/unset the way NEXT_PUBLIC_PAYPAL_BUSINESS did. Mainly for confirming a Plesk auto-deploy
+ *  actually picked up the latest push. */
+function BuildInfo() {
+  const sha = process.env.NEXT_PUBLIC_GIT_SHA;
+  if (!sha || sha === "unknown") return null;
+  return (
+    <a
+      href={`https://github.com/pmneo/astro-homepage/commit/${sha}`}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="font-mono text-xs text-slate-600 hover:text-slate-400"
+    >
+      build {sha}
+    </a>
   );
 }

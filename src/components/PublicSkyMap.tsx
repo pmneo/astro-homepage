@@ -27,7 +27,7 @@ export default function PublicSkyMap({ username }: Props) {
     <div className="sky-map-public">
       <Script src={ALADIN_SRC} strategy="lazyOnload" onLoad={() => setScriptReady(true)} />
       {scriptReady ? (
-        <SkyMapCard dataSource={dataSource} activeJob={null} />
+        <SkyMapCard dataSource={dataSource} activeJob={null} supportsOpenTargets={false} />
       ) : (
         <p className="text-slate-500">Loading sky map…</p>
       )}

@@ -13,8 +13,8 @@ plate-solved fields, and a tool for any visitor to look up their own AstroBin ga
   client components below instead of hitting AstroBin directly (its API has no CORS headers).
 - `src/content/site.ts` — the non-AstroBin content (name, location, about text, equipment list,
   PayPal business id). Edit this to make the site yours.
-- `src/components/` — one component per section, plus `Starfield.tsx` (fixed canvas background)
-  and `TelescopeRig.tsx` (the scroll-rotated telescope silhouette).
+- `src/components/` — one component per section, plus `ObservatoryVideo.tsx` (the scroll-scrubbed
+  background footage).
 
 ## Local development
 
@@ -46,9 +46,23 @@ server.
    ```
    (`standalone` doesn't copy `public/` or the static asset folder itself — Next expects you to
    place them next to the generated `server.js`.)
-3. **Environment variables**: set `NEXT_PUBLIC_PAYPAL_BUSINESS` (and `PORT`/`HOSTNAME` if you need
-   non-default values) in the Node.js Toolkit's environment variables panel, not just `.env.local`
-   — Passenger doesn't read dotfiles by default.
+3. **Environment variables** — two different things, easy to mix up:
+   - `CACHE_EVICT_SECRET` is read at *request time* (`process.env...` inside an API route), so it
+     just needs to be set wherever Passenger actually runs the app — the Node.js Toolkit's
+     environment variables panel, not `.env.local` (Passenger doesn't read dotfiles by default).
+   - `NEXT_PUBLIC_PAYPAL_BUSINESS` is **inlined into the client JS bundle at `next build` time** —
+     Next.js replaces `process.env.NEXT_PUBLIC_PAYPAL_BUSINESS` with a literal string during the
+     build step, once, permanently. If Plesk's Node.js Toolkit only injects its panel-configured
+     env vars into the *running server process* and not into the separate build/deploy step (this
+     varies by Plesk setup), the variable will read as empty in the built bundle no matter how
+     many times you restart the app afterward — only a *rebuild* with the variable actually present
+     during `npm run build` fixes it.
+   - **Bulletproof workaround** if you're not sure which case you're in: set it directly on the
+     build command itself in your deploy script/hook (step 2 above and the auto-deploy script
+     below), e.g. `NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build` — this can't fail to
+     reach the build step, regardless of how Plesk's panel variables are wired.
+   - To check which case you're actually in: after a deploy, view the page source and search for
+     `PAYPAL_BUSINESS` — if it's an empty string literal in the JS, the build step didn't see it.
 4. **Restart**: Plesk's Node.js Toolkit restarts the app automatically when you save its settings,
    or via "Restart App" in its UI.
 
@@ -60,11 +74,15 @@ touching Passenger's restart file:
 
 ```bash
 npm ci
-npm run build
+NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build
 cp -r public .next/standalone/public
 cp -r .next/static .next/standalone/.next/static
 mkdir -p .next/standalone/tmp && touch .next/standalone/tmp/restart.txt
 ```
+
+(the `NEXT_PUBLIC_...=` prefix directly on the build command is the bulletproof workaround from
+step 3 above — reaches the build regardless of how Plesk's own panel env vars are wired; swap in
+your real value.)
 
 Once wired up, `git push` to the connected branch rebuilds and restarts the live site with no
 manual server access needed.

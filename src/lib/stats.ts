@@ -1,0 +1,58 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+/** Owner-only usage counters — not a full analytics system, just enough to answer "does anyone
+ *  actually look at this" and "does anyone use the Explore tool". Plain read-modify-write on a
+ *  single JSON file, not locked against concurrent writes racing each other — this is a low-
+ *  traffic personal site, and losing an occasional increment under real concurrency is harmless,
+ *  same pragmatism as the rest of this cache layer (see diskCache.ts). Lives outside CACHE_ROOT's
+ *  images/hips/astrobin-meta namespaces so /api/cache/evict's "all" can never wipe it by accident —
+ *  this is data the owner wants to keep, not a cache. */
+
+const STATS_DIR = path.join(process.cwd(), ".cache", "stats");
+const STATS_FILE = path.join(STATS_DIR, "counters.json");
+
+interface StatsData {
+  since: number;
+  pageViews: number;
+  exploreUses: number;
+  exploredUsernames: Record<string, number>;
+}
+
+function emptyStats(): StatsData {
+  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {} };
+}
+
+async function readStats(): Promise<StatsData> {
+  try {
+    const raw = JSON.parse(await readFile(STATS_FILE, "utf-8"));
+    return { ...emptyStats(), ...raw };
+  } catch {
+    return emptyStats();
+  }
+}
+
+async function writeStats(data: StatsData): Promise<void> {
+  await mkdir(STATS_DIR, { recursive: true });
+  await writeFile(STATS_FILE, JSON.stringify(data));
+}
+
+export async function recordPageView(): Promise<void> {
+  const stats = await readStats();
+  stats.pageViews += 1;
+  await writeStats(stats);
+}
+
+/** Only called for a username other than the site owner's own — see the footprints route, which
+ *  is also what backs the owner's own Sky map section and shouldn't inflate this count. */
+export async function recordExploreUse(username: string): Promise<void> {
+  const stats = await readStats();
+  stats.exploreUses += 1;
+  const key = username.toLowerCase();
+  stats.exploredUsernames[key] = (stats.exploredUsernames[key] ?? 0) + 1;
+  await writeStats(stats);
+}
+
+export async function getStats(): Promise<StatsData> {
+  return readStats();
+}

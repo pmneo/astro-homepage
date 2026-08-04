@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import ObservatoryVideo from "@/components/ObservatoryVideo";
 import Nav from "@/components/Nav";
+import PageViewBeacon from "@/components/PageViewBeacon";
 import { site } from "@/content/site";
 import "./globals.css";
 
@@ -36,6 +37,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-950 text-slate-100">
+        <PageViewBeacon />
         <ObservatoryVideo />
         <Nav />
         {children}

@@ -25,7 +25,7 @@ export default function DonateButton() {
         type="submit"
         className="inline-flex items-center gap-2 rounded-full bg-[#ffc439] px-6 py-3 font-semibold text-slate-900 transition hover:bg-[#ffb800]"
       >
-        {site.paypal.itemName}
+        {site.paypal.buttonLabel}
       </button>
     </form>
   );

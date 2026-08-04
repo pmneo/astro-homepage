@@ -17,7 +17,11 @@ export const site = {
     // Set NEXT_PUBLIC_PAYPAL_BUSINESS in your environment to your PayPal business email or
     // Merchant ID to enable the donate button (see .env.example).
     business: process.env.NEXT_PUBLIC_PAYPAL_BUSINESS ?? "",
-    itemName: "Buy me a beer 🍺",
+    // Shown on the button itself.
+    buttonLabel: "Buy me a beer 🍺",
+    // Sent as PayPal's `item_name` form field — PayPal's donate page garbles non-ASCII
+    // characters (the beer emoji shows up as mojibake), so this stays plain text.
+    itemName: "Buy me a beer",
   },
   equipment: [
     {

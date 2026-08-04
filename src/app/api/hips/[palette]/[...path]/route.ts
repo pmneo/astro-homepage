@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getHipsMoc, getHipsProperties, getHipsTile, isValidHipsTilePath, SUPPORTED_HIPS_PALETTES } from "@/lib/hips";
 
+// This route has its own disk-cache logic (see lib/hips.ts) — force-dynamic makes sure Next's own
+// Full Route Cache never sits in front of that and serves a memoized response from before a
+// deploy that changed how a tile gets built (e.g. the NODATA_RGB fix), independent of the
+// Cache-Control header below (which only governs the *browser's* cache, not Next's own).
+export const dynamic = "force-dynamic";
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ palette: string; path: string[] }> },

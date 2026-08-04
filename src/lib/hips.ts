@@ -55,6 +55,17 @@ const OHS_REMAP: Record<string, [number, number, number]> = {
   hso: [1, 2, 0], // R=Hα, G=SII, B=OIII
 };
 
+// Aladin Lite's own default "no HiPS data here" background (its init option defaults to exactly
+// this, see aladin.js's own `backgroundColor:"rgb(60, 60, 60)"`) — but that default only paints
+// the letterboxed area *outside* the projected sky circle. *Within* a tile, Aladin's WebGL
+// renderer turns out not to alpha-blend the base image layer at all — confirmed by reading back
+// the actual canvas pixel at a known no-coverage point: alpha=0 rendered as fully opaque black,
+// identical to how alpha=255 black would render. ohs8's own no-coverage pixels are alpha=0 with
+// RGB baked in as (0,0,0) — real black, not a neutral placeholder — so preserving alpha (below)
+// is necessary but not sufficient; the RGB itself has to be replaced too, to match this deployment
+// too, not just whatever viewer originally rendered simg.de's tiles as gray.
+const NODATA_RGB: [number, number, number] = [60, 60, 60];
+
 function fetchOhs8Raw(path: string, ext: string): Promise<Buffer | null> {
   return fetchAndCache(`${SIMG_BASE_URL}ohs8/${path}`, HIPS_NAMESPACE, `ohs8/${path}`, ext);
 }
@@ -70,12 +81,30 @@ async function getOhsRemapTile(palette: string, tilePath: string): Promise<Buffe
   const ohs8 = await fetchOhs8Raw(tilePath, TILE_EXT);
   if (!ohs8) return null;
 
-  const { data, info } = await sharp(ohs8).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const remapped = Buffer.alloc(data.length);
-  for (let i = 0; i < data.length; i += 3) {
-    remapped[i] = data[i + remap[0]];
-    remapped[i + 1] = data[i + remap[1]];
-    remapped[i + 2] = data[i + remap[2]];
+  // ohs8's own tiles are RGBA, alpha=0 marking pixels the survey has no coverage for at all (NSNS
+  // doesn't cover the whole sky) — but the output here is always fully opaque, alpha=0 replaced by
+  // opaque gray rather than kept transparent: every alpha-aware compositor in this pipeline
+  // (canvas 2D, and — confirmed by reading back an actual rendered WebGL pixel — Aladin's own tile
+  // texture upload) stores colors premultiplied by alpha, which collapses RGB to (0,0,0) at
+  // alpha=0 regardless of what color was there, the moment anything draws/uploads/reads back the
+  // image. An earlier version of this fix kept the real alpha=0 and just swapped in a gray RGB,
+  // which looked identical to plain black once premultiplied — same bug, just moved from "wrong
+  // RGB" to "right RGB, alpha erases it". Since the result is always opaque, output is plain RGB
+  // (3 channels) rather than carrying an alpha channel that would only ever say 255.
+  const { data, info } = await sharp(ohs8).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const srcChannels = info.channels;
+  const remapped = Buffer.alloc(info.width * info.height * 3);
+  for (let px = 0, si = 0, di = 0; px < info.width * info.height; px++, si += srcChannels, di += 3) {
+    const alpha = srcChannels === 4 ? data[si + 3] : 255;
+    if (alpha === 0) {
+      remapped[di] = NODATA_RGB[0];
+      remapped[di + 1] = NODATA_RGB[1];
+      remapped[di + 2] = NODATA_RGB[2];
+    } else {
+      remapped[di] = data[si + remap[0]];
+      remapped[di + 1] = data[si + remap[1]];
+      remapped[di + 2] = data[si + remap[2]];
+    }
   }
   const png = await sharp(remapped, { raw: { width: info.width, height: info.height, channels: 3 } })
     .png()

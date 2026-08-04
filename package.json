@@ -8,6 +8,7 @@
     "prebuild": "node scripts/fetch-vendor.mjs",
     "build": "next build",
     "start": "next start",
+    "start:https-proxy": "node scripts/https-dev-proxy.mjs",
     "lint": "eslint"
   },
   "dependencies": {

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Section from "./Section";
-import AstrobinGalleryGrid from "./AstrobinGalleryGrid";
 import PublicSkyMap from "./PublicSkyMap";
 
 export default function ExploreSection() {
@@ -10,7 +9,7 @@ export default function ExploreSection() {
   const [submittedUsername, setSubmittedUsername] = useState<string | null>(null);
 
   return (
-    <Section id="explore" eyebrow="Try it with your own gallery" title="Explore any AstroBin user">
+    <Section id="explore" eyebrow="Try it with your own sky map" title="Explore any AstroBin user">
       <form
         className="mb-8 flex max-w-md gap-2"
         onSubmit={(e) => {
@@ -35,13 +34,10 @@ export default function ExploreSection() {
       </form>
 
       {submittedUsername && (
-        // key={submittedUsername} remounts these on every new lookup — both components load
-        // their username's data once on mount rather than reacting to prop changes, so a fresh
-        // mount is what resets them to a clean loading state for the new user.
-        <div key={submittedUsername} className="space-y-10">
-          <AstrobinGalleryGrid username={submittedUsername} limit={8} />
-          <PublicSkyMap username={submittedUsername} />
-        </div>
+        // key={submittedUsername} remounts this on every new lookup — PublicSkyMap loads its
+        // username's data once on mount rather than reacting to prop changes, so a fresh mount is
+        // what resets it to a clean loading state for the new user.
+        <PublicSkyMap key={submittedUsername} username={submittedUsername} />
       )}
     </Section>
   );

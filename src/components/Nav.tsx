@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const LINKS = [
   { href: "#observatory", label: "Observatory" },
   { href: "#equipment", label: "Equipment" },
@@ -9,8 +11,15 @@ const LINKS = [
 export default function Nav() {
   return (
     <nav className="fixed inset-x-0 top-0 z-20 flex items-center justify-between bg-slate-950/60 px-6 py-4 backdrop-blur-sm sm:px-10">
-      <a href="#" className="font-semibold tracking-wide text-slate-100">
-        pmneo
+      <a href="#">
+        <Image
+          src="/pmneoAstro.svg"
+          alt="pmneo Astrophotography"
+          width={1148}
+          height={633}
+          priority
+          className="h-8 w-auto invert"
+        />
       </a>
       <ul className="hidden gap-6 text-sm text-slate-300 sm:flex">
         {LINKS.map((link) => (

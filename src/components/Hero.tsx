@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { site } from "@/content/site";
 
 export default function Hero() {
@@ -6,8 +7,15 @@ export default function Hero() {
       <p className="mb-4 text-sm font-medium uppercase tracking-[0.3em] text-cyan-400">
         {site.location.name} · {site.location.place}
       </p>
-      <h1 className="max-w-3xl text-4xl font-semibold text-slate-100 sm:text-6xl">
-        {site.name}
+      <h1 className="w-full max-w-2xl">
+        <Image
+          src="/pmneoAstro.svg"
+          alt={site.name}
+          width={1148}
+          height={633}
+          priority
+          className="h-auto w-full invert"
+        />
       </h1>
       <p className="mt-6 max-w-xl text-lg text-slate-300 sm:text-xl">{site.tagline}</p>
       <a

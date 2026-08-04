@@ -40,6 +40,9 @@ yarn-error.log*
 # IDE
 .idea/
 
+# Playwright MCP's own screenshots/logs from manual testing
+/.playwright-mcp/
+
 # on-disk caches (HiPS tiles, cached AstroBin images) — see src/lib/diskCache.ts
 /.cache/
 

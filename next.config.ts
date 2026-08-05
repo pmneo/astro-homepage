@@ -1,11 +1,19 @@
 import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
 
-// Computed at build time from the actual git checkout being built — not from a Plesk-configured
-// env var — specifically so "which commit is this deploy actually running" (see Footer.tsx) can't
+// Computed at build time so "which commit is this deploy actually running" (see Footer.tsx) can't
 // go stale/unset the way NEXT_PUBLIC_PAYPAL_BUSINESS did (see README's Plesk section: that one
 // depends on Plesk's env vars reaching the *build* step, not just the running server).
+//
+// GIT_SHA (if set) wins over a local git lookup: Plesk's Git extension deploys this app's files
+// without leaving a working `.git` directory behind wherever `npm run build` actually runs, so
+// `git rev-parse` always fails there — the deploy script instead passes GIT_SHA explicitly, read
+// from wherever the Git extension's *own* repository clone lives (see README's Plesk section).
+// That's deliberately not "ask GitHub for the latest commit on main": that would only be a guess
+// at what's live, wrong the moment a deploy lags behind a push or a non-main ref is what's
+// actually checked out — reading the SHA the deploy step itself just used is exact by construction.
 function getGitSha(): string {
+  if (process.env.GIT_SHA) return process.env.GIT_SHA;
   try {
     return execSync("git rev-parse --short HEAD").toString().trim();
   } catch {

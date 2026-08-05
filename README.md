@@ -74,6 +74,7 @@ touching Passenger's restart file:
 
 ```bash
 npm ci
+GIT_SHA=$(git -C /var/www/vhosts/pmneo.de/git/astro-homepage.git rev-parse --short HEAD) \
 NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build
 cp -r public .next/standalone/public
 cp -r .next/static .next/standalone/.next/static
@@ -83,6 +84,14 @@ mkdir -p .next/standalone/tmp && touch .next/standalone/tmp/restart.txt
 (the `NEXT_PUBLIC_...=` prefix directly on the build command is the bulletproof workaround from
 step 3 above — reaches the build regardless of how Plesk's own panel env vars are wired; swap in
 your real value.)
+
+The `GIT_SHA=...` prefix exists for the same reason: the deploy action runs in the *application
+root*, which the Git extension populates by copying files without a `.git` directory, so a plain
+`git rev-parse` inside `next.config.ts` always fails there and falls back to `"unknown"`. Reading
+the SHA straight from the extension's own bare repo clone (`/var/www/vhosts/pmneo.de/git/astro-homepage.git`
+— works on a bare repo too, no working tree needed) instead of e.g. asking GitHub's API for "the
+latest commit on main" guarantees this is the *exact* commit that just got deployed, not a guess
+that could be wrong if a deploy lags behind a push or a non-`main` ref is what's actually live.
 
 Once wired up, `git push` to the connected branch rebuilds and restarts the live site with no
 manual server access needed.

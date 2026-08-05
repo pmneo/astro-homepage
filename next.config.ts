@@ -1,5 +1,19 @@
 import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
+import path from "node:path";
 import type { NextConfig } from "next";
+
+// Temporary diagnostic aid: GIT_REPO-based SHA resolution has silently failed once already in
+// Plesk with no visible error, so this writes what actually happened to a file next to
+// next.config.ts (Plesk's build step doesn't otherwise surface next.config.ts's own console
+// output anywhere the site owner can see it). Remove once the deploy actually shows a real SHA.
+function debugLog(message: string): void {
+  try {
+    appendFileSync(path.join(process.cwd(), "next-config-debug.log"), `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    // best-effort only — must never break the build
+  }
+}
 
 // Computed at build time so "which commit is this deploy actually running" (see Footer.tsx) can't
 // go stale/unset the way NEXT_PUBLIC_PAYPAL_BUSINESS did (see README's Plesk section: that one
@@ -17,17 +31,28 @@ import type { NextConfig } from "next";
 // non-main ref is what's actually checked out — reading the SHA straight from the repo Plesk
 // itself deployed from is exact by construction.
 function getGitSha(): string {
+  debugLog(`cwd=${process.cwd()}`);
+  const gitLikeKeys = Object.keys(process.env).filter((k) => /git|repo/i.test(k));
+  debugLog(`env keys matching /git|repo/i: ${gitLikeKeys.length ? gitLikeKeys.join(", ") : "(none)"}`);
+
   const repo = process.env.GIT_REPO;
+  debugLog(`GIT_REPO=${repo ?? "(unset)"}`);
   if (repo) {
     try {
-      return execFileSync("git", ["-C", repo, "rev-parse", "--short", "HEAD"]).toString().trim();
-    } catch {
+      const sha = execFileSync("git", ["-C", repo, "rev-parse", "--short", "HEAD"]).toString().trim();
+      debugLog(`git -C ${repo} rev-parse --short HEAD -> "${sha}"`);
+      return sha;
+    } catch (err) {
+      debugLog(`git -C ${repo} rev-parse --short HEAD FAILED: ${(err as Error).message}`);
       return "unknown";
     }
   }
   try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"]).toString().trim();
-  } catch {
+    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"]).toString().trim();
+    debugLog(`local git rev-parse --short HEAD -> "${sha}"`);
+    return sha;
+  } catch (err) {
+    debugLog(`local git rev-parse --short HEAD FAILED: ${(err as Error).message}`);
     return "unknown";
   }
 }

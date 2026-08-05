@@ -46,6 +46,9 @@ yarn-error.log*
 # on-disk caches (HiPS tiles, cached AstroBin images) — see src/lib/diskCache.ts
 /.cache/
 
+# written by the Plesk deploy script, read by next.config.ts — see README's Plesk section
+/GIT_SHA.txt
+
 # fetched by scripts/fetch-vendor.mjs, not committed (same as KStarsCluster's own websrc)
 /public/vendor/
 

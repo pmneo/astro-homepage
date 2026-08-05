@@ -157,6 +157,19 @@ function finalRevision(image: any): any | null {
 /** Images with edit history carry their own plate-solve per revision (content-type 20) rather
  *  than the base Image id (content-type 19) — using the wrong one can attach a stale, differently
  *  oriented solve from a since-replaced upload. */
+// AstroBin's API sends `hash: null` for a real share of images (confirmed live: dozens per
+// gallery) — String(image.hash) on those silently produces the literal string "null" instead,
+// so every affected image collides onto that one identical GalleryImage/AstrobinFootprint.hash
+// value (breaking the React list key in AstrobinGalleryGrid.tsx, and previously breaking
+// skymap-widget's footprint image cache the same way). image.pk is a numeric primary key AstroBin
+// always sends (already relied on elsewhere here, e.g. solutionKey below), so it's a safe
+// fallback for uniqueness — unlike hash, it's meaningless as a /i/<hash> URL, so callers building
+// links must keep using the raw image.hash, not this field.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeHash(image: any): string {
+  return image.hash != null ? String(image.hash) : `pk-${image.pk}`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function solutionKey(image: any): string {
   const revision = finalRevision(image);
@@ -270,7 +283,7 @@ export async function getGallery(username: string): Promise<GalleryImage[] | nul
     const revision = finalRevision(image);
     const dims = revision ?? image;
     return {
-      hash: String(image.hash),
+      hash: safeHash(image),
       title: image.title ? String(image.title) : "Untitled",
       url: `https://app.astrobin.com/i/${image.hash}`,
       thumbnailUrl: extractThumbnailUrl(image),
@@ -315,7 +328,7 @@ export async function getFootprints(username: string): Promise<AstrobinFootprint
     if (!solution) continue; // not (yet) plate-solved
 
     const footprint: AstrobinFootprint = {
-      hash: String(image.hash),
+      hash: safeHash(image),
       title: image.title ? String(image.title) : "Untitled",
       url: `https://app.astrobin.com/i/${image.hash}`,
       thumbnailUrl: extractThumbnailUrl(image),

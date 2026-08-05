@@ -72,7 +72,9 @@ server.
    (`standalone` doesn't copy `public/`, the static asset folder, or `.env.local` itself — Next
    expects you to place all three next to the generated `server.js`.)
 4. **Restart**: Plesk's Node.js Toolkit restarts the app automatically when you save its settings,
-   or via "Restart App" in its UI.
+   or via "Restart App" in its UI. For an *automated* restart from a deploy script, see the
+   "Restarting after a deploy" note below — touching Passenger's usual `tmp/restart.txt` turned
+   out not to work in this particular setup.
 
 **A caveat worth checking once**: if your Plesk Git deployment wipes untracked/gitignored files on
 every deploy (this project's own `.cache/` doesn't survive one, see `src/lib/diskCache.ts`),
@@ -102,11 +104,34 @@ the repo Plesk itself deployed from, rather than e.g. asking GitHub's API for "t
 on main" (which would only be a guess at what's live, wrong the moment a deploy lags behind a push
 or a non-`main` ref is what's actually checked out).
 
+### Restarting after a deploy
+
+Passenger's usual convention — touching `tmp/restart.txt` next to the app so the next request
+picks up a fresh worker — didn't actually restart anything in this setup (confirmed: the site kept
+serving the old build indefinitely; only manually killing the running server process by PID made
+Passenger spawn a new one with the new build). Whatever's watching for restarts in this particular
+Node.js Toolkit configuration isn't `tmp/restart.txt`, so the deploy script kills the process
+directly instead:
+
+```bash
+pkill -f 'next-server' || true
+```
+
+Matched by `next-server` rather than the `server.js` path: Next.js sets its own process title
+(`next-server (v16.2.12)`, confirmed via `ps aux` against the live process), which *replaces* what
+`ps`/`pgrep -f` see as that process's command line entirely — the original `node .../server.js`
+invocation is no longer visible there to match against at all.
+
+The `|| true` matters: `pkill` exits non-zero when it finds no matching process (e.g. the very
+first deploy, before the app has ever started), which would otherwise abort the rest of the script.
+This assumes the deploy script runs as the same system user Passenger runs the app under — true for
+Plesk's per-vhost Node.js Toolkit setup — so the kill doesn't need root.
+
 ### Auto-deploy on `git push`
 
 Use Plesk's **Git** extension to connect this repo (as a remote you push to, or pulling from
-GitHub) and set its deployment action to the same commands as step 3 above, followed by touching
-Passenger's restart file:
+GitHub) and set its deployment action to the same commands as step 3 above, followed by killing the
+running server so Passenger respawns it:
 
 ```bash
 npm ci
@@ -114,7 +139,7 @@ npm run build
 cp -r public .next/standalone/public
 cp -r .next/static .next/standalone/.next/static
 cp .env.local .next/standalone/.env.local
-mkdir -p .next/standalone/tmp && touch .next/standalone/tmp/restart.txt
+pkill -f 'next-server' || true
 ```
 
 Once wired up, `git push` to the connected branch rebuilds and restarts the live site with no

@@ -47,6 +47,7 @@ server.
    OBSERVATORY_STATUS_SECRET=...
    STATS_DIR=/var/www/vhosts/pmneo.de/persistent-stats
    CACHE_DIR=/var/www/vhosts/pmneo.de/persistent-cache
+   OBSERVATORY_STATUS_DIR=/var/www/vhosts/pmneo.de/persistent-observatory-status
    ```
    This works because of two separate things, both handled by Next.js itself, not Plesk:
    - `next build` loads `.env.local` into `process.env` *before* even evaluating

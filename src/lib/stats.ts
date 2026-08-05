@@ -23,10 +23,11 @@ interface StatsData {
   pageViews: number;
   exploreUses: number;
   exploredUsernames: Record<string, number>;
+  donateClicks: number;
 }
 
 function emptyStats(): StatsData {
-  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {} };
+  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {}, donateClicks: 0 };
 }
 
 async function readStats(): Promise<StatsData> {
@@ -56,6 +57,14 @@ export async function recordExploreUse(username: string): Promise<void> {
   stats.exploreUses += 1;
   const key = username.toLowerCase();
   stats.exploredUsernames[key] = (stats.exploredUsernames[key] ?? 0) + 1;
+  await writeStats(stats);
+}
+
+/** Fires when the donate button is actually clicked (submitting the PayPal form) — not the same
+ *  as a completed donation, just "someone was interested enough to click through". */
+export async function recordDonateClick(): Promise<void> {
+  const stats = await readStats();
+  stats.donateClicks += 1;
   await writeStats(stats);
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { SchedulerJob } from "skymap-widget";
 import Section from "./Section";
 import PublicSkyMap from "./PublicSkyMap";
@@ -37,22 +38,52 @@ function toSchedulerJob(job: LiveActiveJob): SchedulerJob {
 
 export default function SkyMapSection() {
   const status = useObservatoryStatus();
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // PublicSkyMap mounting is what actually kicks off the Aladin script load, HiPS tile fetches,
+  // and AstroBin footprint thumbnail fetches — no point paying for any of that on every page load
+  // if the visitor never scrolls this far down. rootMargin gives it a 200px head start before the
+  // section is fully in view, so it's ready by the time scrolling actually reaches it instead of
+  // popping in empty. Disconnects after the first trigger — once loaded, it stays loaded even if
+  // scrolled back out of view.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const live = status?.available && !status.stale ? status : null;
   const liveJob = live?.activeJob ?? null;
 
   return (
     <Section id="sky-map" eyebrow="Where it's all pointed" title="Sky map">
-      <PublicSkyMap
-        username={site.astrobinUsername}
-        activeJob={liveJob ? toSchedulerJob(liveJob) : null}
-        // The job's own target coordinates double as "current mount position" here — during
-        // JOB_BUSY (the only time this is set at all) the mount is tracking that exact target,
-        // and the public push has no live encoder position to offer instead.
-        mountCoords={liveJob ? { ra: liveJob.targetRA, dec: liveJob.targetDEC } : undefined}
-        fov={live?.fov ?? undefined}
-        pa={liveJob?.pa}
-      />
+      <div ref={containerRef}>
+        {isVisible ? (
+          <PublicSkyMap
+            username={site.astrobinUsername}
+            activeJob={liveJob ? toSchedulerJob(liveJob) : null}
+            // The job's own target coordinates double as "current mount position" here — during
+            // JOB_BUSY (the only time this is set at all) the mount is tracking that exact target,
+            // and the public push has no live encoder position to offer instead.
+            mountCoords={liveJob ? { ra: liveJob.targetRA, dec: liveJob.targetDEC } : undefined}
+            fov={live?.fov ?? undefined}
+            pa={liveJob?.pa}
+          />
+        ) : (
+          <p className="text-slate-500">Loading sky map…</p>
+        )}
+      </div>
     </Section>
   );
 }

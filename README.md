@@ -63,8 +63,35 @@ server.
      reach the build step, regardless of how Plesk's panel variables are wired.
    - To check which case you're actually in: after a deploy, view the page source and search for
      `PAYPAL_BUSINESS` — if it's an empty string literal in the JS, the build step didn't see it.
+   - `GIT_REPO` (optional) points `next.config.ts` at Plesk's own bare repo clone for the
+     `NEXT_PUBLIC_GIT_SHA` footer build (see below) — set it in the same panel, same build-time
+     caveat as `NEXT_PUBLIC_PAYPAL_BUSINESS` applies.
 4. **Restart**: Plesk's Node.js Toolkit restarts the app automatically when you save its settings,
    or via "Restart App" in its UI.
+
+### Showing the deployed commit in the footer
+
+`next.config.ts` inlines the running build's short git SHA into `NEXT_PUBLIC_GIT_SHA` (see
+`Footer.tsx`) by running `git rev-parse --short HEAD` at build time. That works fine for local
+dev/builds, but fails in Plesk: the Git extension deploys this app's files into the *application
+root* by copying them without a `.git` directory, so there's nothing there for `git rev-parse` to
+find, and it silently falls back to `"unknown"`.
+
+Passing the SHA through the deploy script itself turned out to be unreliable in practice (Plesk's
+deploy action doesn't hand values from one script line to the next, whether via an inline env var
+prefix or a file one line writes and a later line reads). The fix instead is `GIT_REPO`: set it
+once in the Node.js Toolkit's environment-variables panel to the path of the Git extension's own
+bare repo clone, e.g.:
+
+```
+GIT_REPO=/var/www/vhosts/pmneo.de/git/astro-homepage.git
+```
+
+`next.config.ts` then runs `git -C "$GIT_REPO" rev-parse --short HEAD` instead of a plain
+`git rev-parse` — works on a bare repo too, no working tree needed — reading the SHA straight from
+the repo Plesk itself deployed from, rather than e.g. asking GitHub's API for "the latest commit
+on main" (which would only be a guess at what's live, wrong the moment a deploy lags behind a push
+or a non-`main` ref is what's actually checked out).
 
 ### Auto-deploy on `git push`
 
@@ -73,7 +100,6 @@ GitHub) and set its deployment action to the same three commands as step 2 above
 touching Passenger's restart file:
 
 ```bash
-git -C /var/www/vhosts/pmneo.de/git/astro-homepage.git rev-parse --short HEAD > GIT_SHA.txt
 npm ci
 NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build
 cp -r public .next/standalone/public
@@ -84,16 +110,6 @@ mkdir -p .next/standalone/tmp && touch .next/standalone/tmp/restart.txt
 (the `NEXT_PUBLIC_...=` prefix directly on the build command is the bulletproof workaround from
 step 3 above — reaches the build regardless of how Plesk's own panel env vars are wired; swap in
 your real value.)
-
-The `GIT_SHA.txt` line exists for the same reason: the deploy action runs in the *application
-root*, which the Git extension populates by copying files without a `.git` directory, so a plain
-`git rev-parse` inside `next.config.ts` always fails there and falls back to `"unknown"`. It writes
-to a file rather than an env var because Plesk's deploy action doesn't carry env vars between the
-lines of its script — a var set on one line isn't visible to the next. Reading the SHA straight
-from the extension's own bare repo clone (`/var/www/vhosts/pmneo.de/git/astro-homepage.git` —
-works on a bare repo too, no working tree needed) instead of e.g. asking GitHub's API for "the
-latest commit on main" guarantees this is the *exact* commit that just got deployed, not a guess
-that could be wrong if a deploy lags behind a push or a non-`main` ref is what's actually live.
 
 Once wired up, `git push` to the connected branch rebuilds and restarts the live site with no
 manual server access needed.

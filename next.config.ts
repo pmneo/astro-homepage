@@ -1,31 +1,32 @@
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import path from "node:path";
+import { execFileSync } from "node:child_process";
 import type { NextConfig } from "next";
 
 // Computed at build time so "which commit is this deploy actually running" (see Footer.tsx) can't
 // go stale/unset the way NEXT_PUBLIC_PAYPAL_BUSINESS did (see README's Plesk section: that one
 // depends on Plesk's env vars reaching the *build* step, not just the running server).
 //
-// GIT_SHA.txt (if present) wins over a local git lookup: Plesk's Git extension deploys this app's
-// files without leaving a working `.git` directory behind wherever `npm run build` actually runs,
-// so `git rev-parse` always fails there — the deploy script instead writes the SHA to a file, read
-// from wherever the Git extension's *own* repository clone lives (see README's Plesk section). A
-// file rather than an env var because Plesk's deploy action doesn't carry env vars between the
-// lines of its script (each line/command doesn't inherit a shell state set by an earlier one),
-// while a plain file written by one command and read by a later one has no such requirement. This
-// is also deliberately not "ask GitHub for the latest commit on main": that would only be a guess
-// at what's live, wrong the moment a deploy lags behind a push or a non-main ref is what's
-// actually checked out — reading the SHA the deploy step itself just wrote is exact by construction.
+// GIT_REPO (if set) points at Plesk's own bare repo clone and wins over a local git lookup:
+// Plesk's Git extension deploys this app's files without leaving a working `.git` directory
+// behind wherever `npm run build` actually runs, so a plain `git rev-parse` always fails there.
+// Deploy-script approaches (passing GIT_SHA inline, writing a GIT_SHA.txt file) both turned out to
+// be unreliable in practice — Plesk's deploy action doesn't cleanly hand values from one script
+// line to the next. GIT_REPO instead is a single, persistent variable set once in the Node.js
+// Toolkit's own environment-variables panel (like CACHE_EVICT_SECRET), which does reliably reach
+// the build step. This is also deliberately not "ask GitHub for the latest commit on main": that
+// would only be a guess at what's live, wrong the moment a deploy lags behind a push or a
+// non-main ref is what's actually checked out — reading the SHA straight from the repo Plesk
+// itself deployed from is exact by construction.
 function getGitSha(): string {
-  try {
-    const fromFile = readFileSync(path.join(process.cwd(), "GIT_SHA.txt"), "utf-8").trim();
-    if (fromFile) return fromFile;
-  } catch {
-    // no such file — fall through to the local git lookup below
+  const repo = process.env.GIT_REPO;
+  if (repo) {
+    try {
+      return execFileSync("git", ["-C", repo, "rev-parse", "--short", "HEAD"]).toString().trim();
+    } catch {
+      return "unknown";
+    }
   }
   try {
-    return execSync("git rev-parse --short HEAD").toString().trim();
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"]).toString().trim();
   } catch {
     return "unknown";
   }

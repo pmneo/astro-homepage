@@ -37,37 +37,49 @@ server.
 1. **Domain → Node.js Toolkit**: in Plesk, open the domain, enable the *Node.js* extension, and
    point *Application Root* at this repo's checkout and *Application Startup File* at
    `.next/standalone/server.js`.
-2. **Build on deploy**: set the toolkit's custom "run script" (or the Git deployment hook below) to:
+2. **`.env.local` in the application root** — every env var this app uses (build-time and
+   runtime alike) lives in one `.env.local` file, placed directly in the application root
+   (next to `package.json`), not configured anywhere in Plesk's own UI:
+   ```
+   NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com
+   GIT_REPO=/var/www/vhosts/pmneo.de/git/astro-homepage.git
+   CACHE_EVICT_SECRET=...
+   OBSERVATORY_STATUS_SECRET=...
+   STATS_DIR=/var/www/vhosts/pmneo.de/persistent-stats
+   ```
+   This works because of two separate things, both handled by Next.js itself, not Plesk:
+   - `next build` loads `.env.local` into `process.env` *before* even evaluating
+     `next.config.ts` (confirmed against this Next.js version's own bundled source,
+     `build/index.js`'s `load-dotenv` step runs before `load-next-config`) — so both
+     `NEXT_PUBLIC_PAYPAL_BUSINESS` (inlined into the client bundle) and `GIT_REPO` (read by
+     `getGitSha()` below) see it automatically, no Plesk panel involved at all.
+   - The *running* server (`.next/standalone/server.js`, what Passenger actually starts) also
+     auto-loads `.env.local` from its own directory at startup, the same way `next start` would
+     — but `next build` only copies `.env`/`.env.production` into `.next/standalone/`
+     automatically, **not** `.env.local`. Step 3 below copies it there explicitly.
+
+   This replaces the previous setup (some vars in Plesk's Node.js Toolkit panel, some in
+   `.env.local`, and it was never obvious which was which) with one single file and one single
+   loading mechanism.
+3. **Build on deploy**: set the toolkit's custom "run script" (or the Git deployment hook below) to:
    ```bash
    npm ci
    npm run build
    cp -r public .next/standalone/public
    cp -r .next/static .next/standalone/.next/static
+   cp .env.local .next/standalone/.env.local
    ```
-   (`standalone` doesn't copy `public/` or the static asset folder itself — Next expects you to
-   place them next to the generated `server.js`.)
-3. **Environment variables** — two different things, easy to mix up:
-   - `CACHE_EVICT_SECRET` is read at *request time* (`process.env...` inside an API route), so it
-     just needs to be set wherever Passenger actually runs the app — the Node.js Toolkit's
-     environment variables panel, not `.env.local` (Passenger doesn't read dotfiles by default).
-   - `NEXT_PUBLIC_PAYPAL_BUSINESS` is **inlined into the client JS bundle at `next build` time** —
-     Next.js replaces `process.env.NEXT_PUBLIC_PAYPAL_BUSINESS` with a literal string during the
-     build step, once, permanently. If Plesk's Node.js Toolkit only injects its panel-configured
-     env vars into the *running server process* and not into the separate build/deploy step (this
-     varies by Plesk setup), the variable will read as empty in the built bundle no matter how
-     many times you restart the app afterward — only a *rebuild* with the variable actually present
-     during `npm run build` fixes it.
-   - **Bulletproof workaround** if you're not sure which case you're in: set it directly on the
-     build command itself in your deploy script/hook (step 2 above and the auto-deploy script
-     below), e.g. `NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build` — this can't fail to
-     reach the build step, regardless of how Plesk's panel variables are wired.
-   - To check which case you're actually in: after a deploy, view the page source and search for
-     `PAYPAL_BUSINESS` — if it's an empty string literal in the JS, the build step didn't see it.
-   - `GIT_REPO` (optional) points `next.config.ts` at Plesk's own bare repo clone for the
-     `NEXT_PUBLIC_GIT_SHA` footer build (see below) — set it in the same panel, same build-time
-     caveat as `NEXT_PUBLIC_PAYPAL_BUSINESS` applies.
+   (`standalone` doesn't copy `public/`, the static asset folder, or `.env.local` itself — Next
+   expects you to place all three next to the generated `server.js`.)
 4. **Restart**: Plesk's Node.js Toolkit restarts the app automatically when you save its settings,
    or via "Restart App" in its UI.
+
+**A caveat worth checking once**: if your Plesk Git deployment wipes untracked/gitignored files on
+every deploy (this project's own `.cache/` doesn't survive one, see `src/lib/diskCache.ts`),
+`.env.local` in the application root won't survive either, and you'd need to re-place it after
+every single push. If that turns out to be the case for your setup, keep a copy of `.env.local`
+somewhere outside the deployed tree and add a `cp /path/outside/.env.local .env.local` as the
+first line of the deploy script below, before `npm ci`.
 
 ### Showing the deployed commit in the footer
 
@@ -77,11 +89,8 @@ dev/builds, but fails in Plesk: the Git extension deploys this app's files into 
 root* by copying them without a `.git` directory, so there's nothing there for `git rev-parse` to
 find, and it silently falls back to `"unknown"`.
 
-Passing the SHA through the deploy script itself turned out to be unreliable in practice (Plesk's
-deploy action doesn't hand values from one script line to the next, whether via an inline env var
-prefix or a file one line writes and a later line reads). The fix instead is `GIT_REPO`: set it
-once in the Node.js Toolkit's environment-variables panel to the path of the Git extension's own
-bare repo clone, e.g.:
+`GIT_REPO` (from `.env.local`, see above) points it at the Git extension's own bare repo clone
+instead:
 
 ```
 GIT_REPO=/var/www/vhosts/pmneo.de/git/astro-homepage.git
@@ -96,20 +105,17 @@ or a non-`main` ref is what's actually checked out).
 ### Auto-deploy on `git push`
 
 Use Plesk's **Git** extension to connect this repo (as a remote you push to, or pulling from
-GitHub) and set its deployment action to the same three commands as step 2 above, followed by
-touching Passenger's restart file:
+GitHub) and set its deployment action to the same commands as step 3 above, followed by touching
+Passenger's restart file:
 
 ```bash
 npm ci
-NEXT_PUBLIC_PAYPAL_BUSINESS=you@example.com npm run build
+npm run build
 cp -r public .next/standalone/public
 cp -r .next/static .next/standalone/.next/static
+cp .env.local .next/standalone/.env.local
 mkdir -p .next/standalone/tmp && touch .next/standalone/tmp/restart.txt
 ```
-
-(the `NEXT_PUBLIC_...=` prefix directly on the build command is the bulletproof workaround from
-step 3 above — reaches the build regardless of how Plesk's own panel env vars are wired; swap in
-your real value.)
 
 Once wired up, `git push` to the connected branch rebuilds and restarts the live site with no
 manual server access needed.

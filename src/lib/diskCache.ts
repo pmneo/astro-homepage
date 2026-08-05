@@ -7,9 +7,15 @@ import path from "node:path";
  *  not serverless), so a plain disk cache directory survives both restarts/redeploys and — unlike
  *  an in-memory Map — is shared across worker processes if Passenger runs more than one. Tile/image
  *  entries are immutable forever once fetched (see each route's own comment for why); JSON entries
- *  below carry an "at" timestamp so callers can apply their own TTL on read. */
-
-const CACHE_ROOT = path.join(process.cwd(), ".cache");
+ *  below carry an "at" timestamp so callers can apply their own TTL on read.
+ *
+ *  Defaults to living inside the app's own working directory — but a Plesk-style deploy (fresh git
+ *  checkout, not an in-place update) wipes anything gitignored, this directory included, on every
+ *  redeploy (same issue stats.ts's own STATS_DIR solves for cumulative data). Re-fetching tiles/
+ *  images from AstroBin/CDS afterward is correct behavior, just needlessly slow and hard on those
+ *  upstreams right after every deploy — set CACHE_DIR to an absolute path *outside* the deployed
+ *  app tree to let the cache actually survive redeploys too, same as STATS_DIR. */
+const CACHE_ROOT = process.env.CACHE_DIR ? path.resolve(process.env.CACHE_DIR) : path.join(process.cwd(), ".cache");
 
 function cacheKeyToFilename(key: string): string {
   // Keys here are full upstream URLs / tile paths, not safe to use as filenames directly

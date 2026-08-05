@@ -7,9 +7,15 @@ import path from "node:path";
  *  traffic personal site, and losing an occasional increment under real concurrency is harmless,
  *  same pragmatism as the rest of this cache layer (see diskCache.ts). Lives outside CACHE_ROOT's
  *  images/hips/astrobin-meta namespaces so /api/cache/evict's "all" can never wipe it by accident —
- *  this is data the owner wants to keep, not a cache. */
-
-const STATS_DIR = path.join(process.cwd(), ".cache", "stats");
+ *  this is data the owner wants to keep, not a cache.
+ *
+ *  Defaults to living inside the app's own working directory, same as the rest of the cache — but
+ *  unlike the cache, this is cumulative data meant to survive forever, and a Plesk-style deploy
+ *  (fresh git checkout, not an in-place update) wipes anything gitignored right along with it. Set
+ *  STATS_DIR to an absolute path *outside* the deployed app tree (e.g. a Plesk vhost's own
+ *  persistent data directory, not its httpdocs) to actually survive redeploys — this file has no
+ *  way to know where that is on any given server, only the person deploying it does. */
+const STATS_DIR = process.env.STATS_DIR ? path.resolve(process.env.STATS_DIR) : path.join(process.cwd(), ".cache", "stats");
 const STATS_FILE = path.join(STATS_DIR, "counters.json");
 
 interface StatsData {

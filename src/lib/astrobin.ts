@@ -158,16 +158,30 @@ function finalRevision(image: any): any | null {
  *  than the base Image id (content-type 19) — using the wrong one can attach a stale, differently
  *  oriented solve from a since-replaced upload. */
 // AstroBin's API sends `hash: null` for a real share of images (confirmed live: dozens per
-// gallery) — String(image.hash) on those silently produces the literal string "null" instead,
-// so every affected image collides onto that one identical GalleryImage/AstrobinFootprint.hash
-// value (breaking the React list key in AstrobinGalleryGrid.tsx, and previously breaking
-// skymap-widget's footprint image cache the same way). image.pk is a numeric primary key AstroBin
-// always sends (already relied on elsewhere here, e.g. solutionKey below), so it's a safe
-// fallback for uniqueness — unlike hash, it's meaningless as a /i/<hash> URL, so callers building
-// links must keep using the raw image.hash, not this field.
+// gallery, disproportionately collaborations where this user isn't the primary uploader) —
+// String(image.hash) on those silently produces the literal string "null" instead, so every
+// affected image collides onto that one identical GalleryImage/AstrobinFootprint.hash value
+// (breaking the React list key in AstrobinGalleryGrid.tsx, and — worse — breaking
+// skymap-widget's own footprint-selection matching the same way: SkyMapCard identifies "the
+// selected footprint" by comparing .url, so every image sharing that one collided value got
+// treated as selected simultaneously, and only the last of them in draw order actually got
+// rendered — confirmed live, this is what made most of a gallery's footprints vanish on clicking
+// any one of them). image.pk is a numeric primary key AstroBin always sends (already relied on
+// elsewhere here, e.g. solutionKey below), so it's a safe fallback for uniqueness. Prefixed with
+// "pk-" here purely so this field stays visually distinguishable from a real hash wherever it's
+// logged/keyed — see imageUrlSlug below for the *unprefixed* form callers building an actual
+// AstroBin URL need instead.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function safeHash(image: any): string {
   return image.hash != null ? String(image.hash) : `pk-${image.pk}`;
+}
+
+// Confirmed live: https://www.astrobin.com/<pk>/ (bare numeric id, no prefix) redirects straight
+// to the real https://app.astrobin.com/i/<pk> image page — but .../i/pk-<pk> (safeHash's own
+// prefixed form) 404s. So a URL built from this needs the bare pk, never safeHash's value.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function imageUrlSlug(image: any): string {
+  return image.hash != null ? String(image.hash) : String(image.pk);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,7 +299,7 @@ export async function getGallery(username: string): Promise<GalleryImage[] | nul
     return {
       hash: safeHash(image),
       title: image.title ? String(image.title) : "Untitled",
-      url: `https://app.astrobin.com/i/${image.hash}`,
+      url: `https://app.astrobin.com/i/${imageUrlSlug(image)}`,
       thumbnailUrl: extractThumbnailUrl(image),
       widthPx: Number(dims?.w ?? 0),
       heightPx: Number(dims?.h ?? 0),
@@ -330,7 +344,7 @@ export async function getFootprints(username: string): Promise<AstrobinFootprint
     const footprint: AstrobinFootprint = {
       hash: safeHash(image),
       title: image.title ? String(image.title) : "Untitled",
-      url: `https://app.astrobin.com/i/${image.hash}`,
+      url: `https://app.astrobin.com/i/${imageUrlSlug(image)}`,
       thumbnailUrl: extractThumbnailUrl(image),
     };
 
@@ -372,12 +386,21 @@ export function clearMemoryCache(): void {
 
 /** On-demand image detail (capture date) — the lightweight gallery listing has no acquisition-date
  *  field at all; only the full per-image detail carries "deepSkyAcquisitions". Reports the
- *  [min, max] session date range as a single string (a plain date if it's all one night). */
+ *  [min, max] session date range as a single string (a plain date if it's all one night).
+ *
+ *  `hash` here is whatever safeHash produced — a real hash, or a "pk-<pk>" fallback for an image
+ *  AstroBin sent no hash for. The ?hash= query endpoint below only ever understands a real hash
+ *  (confirmed live: passing it either form of a pk-fallback value returns an empty result, not an
+ *  error) — a pk-fallback has to go through the numeric-id endpoint instead, which returns the
+ *  image object directly rather than a {results: [...]} page. */
 export async function getImageDetail(hash: string): Promise<ImageDetail | null> {
+  const pkMatch = /^pk-(\d+)$/.exec(hash);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const page = await fetchJson<any>(`${API_BASE}/images/image/?hash=${encodeURIComponent(hash)}`);
-  if (!page || !Array.isArray(page.results) || page.results.length === 0) return null;
-  const image = page.results[0];
+  const image: any = pkMatch
+    ? await fetchJson<any>(`${API_BASE}/images/image/${pkMatch[1]}/`)
+    : await fetchJson<any>(`${API_BASE}/images/image/?hash=${encodeURIComponent(hash)}`)
+      .then((page) => (page && Array.isArray(page.results) && page.results.length > 0 ? page.results[0] : null));
+  if (!image) return null;
 
   const acquisitions = image.deepSkyAcquisitions;
   let date: string | null = null;
@@ -396,7 +419,7 @@ export async function getImageDetail(hash: string): Promise<ImageDetail | null> 
 
   return {
     title: image.title ? String(image.title) : "Untitled",
-    url: `https://app.astrobin.com/i/${hash}`,
+    url: `https://app.astrobin.com/i/${imageUrlSlug(image)}`,
     date,
   };
 }

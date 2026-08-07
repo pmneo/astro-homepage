@@ -12,8 +12,8 @@ import { readCached, writeCached } from "./diskCache";
  * proxying+caching it here is both quieter and one request faster.
  *
  * Two kinds of upstream, two code paths:
- * - OHS_REMAP: sho/hso, permuted from simg.de's own starfull "ohs8" composite (ported from
- *   KStarsCluster's HipsProxyServlet.java).
+ * - SIMG_SURVEYS: sho/hso/rgb, channel-permuted (or, for rgb, passed through as-is) from simg.de's
+ *   own "ohs8"/"rgb8" composites (sho/hso ported from KStarsCluster's HipsProxyServlet.java).
  * - RAW_SURVEYS: DSS2/2MASS, straight passthrough+cache from their real host, transcoded from
  *   their native JPEG to PNG since SkyMapCard's buildImageSurvey() hardcodes `imgFormat: 'png'`
  *   for every custom survey regardless of what the upstream actually serves.
@@ -45,14 +45,42 @@ async function toPng(bytes: Buffer): Promise<Buffer> {
   return sharp(bytes).png().toBuffer();
 }
 
-// === sho/hso: channel-permuted from simg.de's ohs8 ===
+// === sho/hso/rgb: from simg.de's ohs8 (channel-permuted) and rgb8 (passed through as-is) ===
 
 const SIMG_BASE_URL = "https://www.simg.de/nebulae3/dr0_2/";
 
-// index into ohs8's own [R,G,B] = [OIII,Hα,SII] per output channel.
-const OHS_REMAP: Record<string, [number, number, number]> = {
-  sho: [2, 1, 0], // R=SII, G=Hα, B=OIII
-  hso: [1, 2, 0], // R=Hα, G=SII, B=OIII
+interface SimgSurveyConfig {
+  /** Upstream folder under SIMG_BASE_URL — sho/hso share "ohs8" (permuted differently from the
+   *  same source), rgb has its own "rgb8" folder (a real RGB continuum composite, not a
+   *  narrowband recombination — see obsDescription). */
+  source: string;
+  /** Index into the source's own [R,G,B] per output channel — [0,1,2] (identity) for rgb, since
+   *  there's nothing to permute there. */
+  remap: [number, number, number];
+  /** The source's own real hips_order (see its properties file) — ohs8 and rgb8 don't share one
+   *  (6 vs. 5), so this has to be per-survey, not a single hardcoded constant, or Aladin would
+   *  request tiles one order past what rgb8 actually has. */
+  order: number;
+  obsTitle: string;
+  obsDescription: string;
+}
+
+const SIMG_SURVEYS: Record<string, SimgSurveyConfig> = {
+  sho: {
+    source: "ohs8", remap: [2, 1, 0], order: 6,
+    obsTitle: "NSNS DR0.2: SHO composite (proxied)",
+    obsDescription: "Server-side R=[SII]/G=Hα/B=[OIII] composite, permuted from simg.de's own starfull ohs8 survey on the fly.",
+  },
+  hso: {
+    source: "ohs8", remap: [1, 2, 0], order: 6,
+    obsTitle: "NSNS DR0.2: HSO composite (proxied)",
+    obsDescription: "Server-side R=Hα/G=[SII]/B=[OIII] composite, permuted from simg.de's own starfull ohs8 survey on the fly.",
+  },
+  rgb: {
+    source: "rgb8", remap: [0, 1, 2], order: 5,
+    obsTitle: "NSNS DR0.2: RGB continuum (proxied)",
+    obsDescription: "Server-side pass-through of simg.de's own rgb8 survey (red/green/blue continuum, with partially subtracted stars) — no channel permutation, just the same no-coverage-pixel fix as sho/hso.",
+  },
 };
 
 // Aladin Lite's own default "no HiPS data here" background (its init option defaults to exactly
@@ -60,38 +88,38 @@ const OHS_REMAP: Record<string, [number, number, number]> = {
 // the letterboxed area *outside* the projected sky circle. *Within* a tile, Aladin's WebGL
 // renderer turns out not to alpha-blend the base image layer at all — confirmed by reading back
 // the actual canvas pixel at a known no-coverage point: alpha=0 rendered as fully opaque black,
-// identical to how alpha=255 black would render. ohs8's own no-coverage pixels are alpha=0 with
-// RGB baked in as (0,0,0) — real black, not a neutral placeholder — so preserving alpha (below)
-// is necessary but not sufficient; the RGB itself has to be replaced too, to match this deployment
-// too, not just whatever viewer originally rendered simg.de's tiles as gray.
+// identical to how alpha=255 black would render. ohs8/rgb8's own no-coverage pixels are alpha=0
+// with RGB baked in as (0,0,0) — real black, not a neutral placeholder — so preserving alpha
+// (below) is necessary but not sufficient; the RGB itself has to be replaced too, to match this
+// deployment too, not just whatever viewer originally rendered simg.de's tiles as gray.
 const NODATA_RGB: [number, number, number] = [60, 60, 60];
 
-function fetchOhs8Raw(path: string, ext: string): Promise<Buffer | null> {
-  return fetchAndCache(`${SIMG_BASE_URL}ohs8/${path}`, HIPS_NAMESPACE, `ohs8/${path}`, ext);
+function fetchSimgSourceRaw(source: string, path: string, ext: string): Promise<Buffer | null> {
+  return fetchAndCache(`${SIMG_BASE_URL}${source}/${path}`, HIPS_NAMESPACE, `${source}/${path}`, ext);
 }
 
-async function getOhsRemapTile(palette: string, tilePath: string): Promise<Buffer | null> {
-  const remap = OHS_REMAP[palette];
+async function getSimgTile(palette: string, tilePath: string): Promise<Buffer | null> {
+  const config = SIMG_SURVEYS[palette];
   const key = `${palette}/${tilePath}`;
   const cached = await readCached(HIPS_NAMESPACE, key, TILE_EXT);
   if (cached) return cached;
 
   // Sparse HiPS tiles 404 legitimately at deep orders — not cached, same reasoning as the
   // original servlet (sparseness at one order says nothing about siblings).
-  const ohs8 = await fetchOhs8Raw(tilePath, TILE_EXT);
-  if (!ohs8) return null;
+  const source = await fetchSimgSourceRaw(config.source, tilePath, TILE_EXT);
+  if (!source) return null;
 
-  // ohs8's own tiles are RGBA, alpha=0 marking pixels the survey has no coverage for at all (NSNS
-  // doesn't cover the whole sky) — but the output here is always fully opaque, alpha=0 replaced by
-  // opaque gray rather than kept transparent: every alpha-aware compositor in this pipeline
-  // (canvas 2D, and — confirmed by reading back an actual rendered WebGL pixel — Aladin's own tile
-  // texture upload) stores colors premultiplied by alpha, which collapses RGB to (0,0,0) at
-  // alpha=0 regardless of what color was there, the moment anything draws/uploads/reads back the
-  // image. An earlier version of this fix kept the real alpha=0 and just swapped in a gray RGB,
-  // which looked identical to plain black once premultiplied — same bug, just moved from "wrong
-  // RGB" to "right RGB, alpha erases it". Since the result is always opaque, output is plain RGB
-  // (3 channels) rather than carrying an alpha channel that would only ever say 255.
-  const { data, info } = await sharp(ohs8).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  // The source's own tiles are RGBA, alpha=0 marking pixels the survey has no coverage for at all
+  // (NSNS doesn't cover the whole sky) — but the output here is always fully opaque, alpha=0
+  // replaced by opaque gray rather than kept transparent: every alpha-aware compositor in this
+  // pipeline (canvas 2D, and — confirmed by reading back an actual rendered WebGL pixel — Aladin's
+  // own tile texture upload) stores colors premultiplied by alpha, which collapses RGB to (0,0,0)
+  // at alpha=0 regardless of what color was there, the moment anything draws/uploads/reads back
+  // the image. An earlier version of this fix kept the real alpha=0 and just swapped in a gray
+  // RGB, which looked identical to plain black once premultiplied — same bug, just moved from
+  // "wrong RGB" to "right RGB, alpha erases it". Since the result is always opaque, output is
+  // plain RGB (3 channels) rather than carrying an alpha channel that would only ever say 255.
+  const { data, info } = await sharp(source).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const srcChannels = info.channels;
   const remapped = Buffer.alloc(info.width * info.height * 3);
   for (let px = 0, si = 0, di = 0; px < info.width * info.height; px++, si += srcChannels, di += 3) {
@@ -101,9 +129,9 @@ async function getOhsRemapTile(palette: string, tilePath: string): Promise<Buffe
       remapped[di + 1] = NODATA_RGB[1];
       remapped[di + 2] = NODATA_RGB[2];
     } else {
-      remapped[di] = data[si + remap[0]];
-      remapped[di + 1] = data[si + remap[1]];
-      remapped[di + 2] = data[si + remap[2]];
+      remapped[di] = data[si + config.remap[0]];
+      remapped[di + 1] = data[si + config.remap[1]];
+      remapped[di + 2] = data[si + config.remap[2]];
     }
   }
   const png = await sharp(remapped, { raw: { width: info.width, height: info.height, channels: 3 } })
@@ -112,14 +140,6 @@ async function getOhsRemapTile(palette: string, tilePath: string): Promise<Buffe
 
   await writeCached(HIPS_NAMESPACE, key, TILE_EXT, png);
   return png;
-}
-
-// Channel-order description per palette, for the human-readable obs_description field below —
-// matches OHS_REMAP above (ohs8's own [OIII,Hα,SII] permuted into each palette's R/G/B).
-const CHANNEL_LABELS = ["[OIII]", "Hα", "[SII]"];
-function channelDescription(palette: string): string {
-  const remap = OHS_REMAP[palette];
-  return `R=${CHANNEL_LABELS[remap[0]]}/G=${CHANNEL_LABELS[remap[1]]}/B=${CHANNEL_LABELS[remap[2]]}`;
 }
 
 // === DSS2/2MASS: straight passthrough (format-converted), from their real public host ===
@@ -175,26 +195,27 @@ async function getRawSurveyTile(palette: string, tilePath: string): Promise<Buff
 
 // === dispatch ===
 
-export const SUPPORTED_HIPS_PALETTES = [...Object.keys(OHS_REMAP), ...Object.keys(RAW_SURVEYS)];
+export const SUPPORTED_HIPS_PALETTES = [...Object.keys(SIMG_SURVEYS), ...Object.keys(RAW_SURVEYS)];
 
 export async function getHipsTile(palette: string, tilePath: string): Promise<Buffer | null> {
-  if (OHS_REMAP[palette]) return getOhsRemapTile(palette, tilePath);
+  if (SIMG_SURVEYS[palette]) return getSimgTile(palette, tilePath);
   if (RAW_SURVEYS[palette]) return getRawSurveyTile(palette, tilePath);
   return null;
 }
 
 /** The MOC tells Aladin which parts of the sky a survey actually has data for — without it,
- *  Aladin has no way to know that short of probing tiles. NSNS (sho/hso) only covers part of the
- *  northern sky, so this matters there especially; DSS2/2MASS are effectively all-sky but Aladin
- *  still fetches this for every custom survey regardless. */
+ *  Aladin has no way to know that short of probing tiles. NSNS (sho/hso/rgb) only covers part of
+ *  the northern sky, so this matters there especially; DSS2/2MASS are effectively all-sky but
+ *  Aladin still fetches this for every custom survey regardless. */
 export async function getHipsMoc(palette: string): Promise<Buffer | null> {
-  if (OHS_REMAP[palette]) return fetchOhs8Raw("Moc.fits", ".fits");
+  const simgConfig = SIMG_SURVEYS[palette];
+  if (simgConfig) return fetchSimgSourceRaw(simgConfig.source, "Moc.fits", ".fits");
   const config = RAW_SURVEYS[palette];
   if (config) return fetchAndCache(`${config.upstreamBase}/Moc.fits`, HIPS_NAMESPACE, `${palette}/Moc.fits`, ".fits");
   return null;
 }
 
-/** Synthetic HiPS properties file for every proxied survey — full field set for the OHS_REMAP
+/** Synthetic HiPS properties file for every proxied survey — full field set for the SIMG_SURVEYS
  *  palettes ported from KStarsCluster's own HipsProxyServlet.servePropertiesFile (an earlier,
  *  incomplete port here was missing dataproduct_type, which Aladin Lite logs as required and —
  *  worse — silently left the survey object in a state that could trip a "recursive use of an
@@ -206,14 +227,15 @@ export function getHipsProperties(palette: string, origin: string): string | nul
   const serviceUrl = `hips_service_url=${origin}/api/hips/${palette}`;
   const creatorDid = `creator_did=ivo://astro-homepage/hips/${palette}`;
 
-  if (OHS_REMAP[palette]) {
+  const simgConfig = SIMG_SURVEYS[palette];
+  if (simgConfig) {
     const paletteUpper = palette.toUpperCase();
     return [
       `obs_collection=Northern Sky Narrowband Survey (${paletteUpper} composite)`,
-      `obs_title=NSNS DR0.2: ${paletteUpper} composite (proxied)`,
-      `obs_description=Server-side ${channelDescription(palette)} composite, permuted from simg.de's own starfull ohs8 survey on the fly.`,
+      `obs_title=${simgConfig.obsTitle}`,
+      `obs_description=${simgConfig.obsDescription}`,
       "hips_frame=equatorial",
-      "hips_order=6",
+      `hips_order=${simgConfig.order}`,
       "hips_order_min=0",
       "hips_tile_width=512",
       "hips_tile_format=png",

@@ -15,6 +15,9 @@ import { site } from "@/content/site";
 const publicSurveys: SurveyOption[] = [
   { id: "sho", label: "SHO (Hubble palette)", custom: { url: "/api/hips/sho", frame: "equatorial", order: 6 } },
   { id: "hso", label: "HSO (Hα/[SII]/[OIII])", custom: { url: "/api/hips/hso", frame: "equatorial", order: 6 } },
+  // rgb8's own real hips_order (see hips.ts's SIMG_SURVEYS) is 5, not 6 like sho/hso's ohs8 —
+  // different source survey, genuinely shallower.
+  { id: "rgb", label: "RGB (continuum)", custom: { url: "/api/hips/rgb", frame: "equatorial", order: 5 } },
   { id: "dss2-color", label: "DSS2 (color)", custom: { url: "/api/hips/dss2-color", frame: "equatorial", order: 9 } },
   { id: "dss2-red", label: "DSS2 (red)", custom: { url: "/api/hips/dss2-red", frame: "equatorial", order: 9 } },
   { id: "2mass-color", label: "2MASS (color)", custom: { url: "/api/hips/2mass-color", frame: "equatorial", order: 9 } },

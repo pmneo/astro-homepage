@@ -43,7 +43,11 @@ export default function PublicSkyMap({ username, activeJob = null, mountCoords, 
           supportsOpenTargets={false}
         />
       ) : (
-        <p className="text-slate-500">Loading sky map…</p>
+        // Same "sky-map" class SkyMapCard's own outer box uses (aspect-ratio: 16/9, see
+        // skymap-widget's SkyMap.css) — see SkyMapSection's identical placeholder for why a bare
+        // line of text here caused a layout jump big enough to throw off anchor scrolling further
+        // down the page.
+        <div className="sky-map flex items-center justify-center text-slate-500">Loading sky map…</div>
       )}
     </div>
   );

@@ -146,7 +146,19 @@ export default function AstrobinGalleryGrid({ username, limit = 12 }: Props) {
   }, [username]);
 
   if (state.status === "loading") {
-    return <p className="text-slate-500">Loading images from AstroBin…</p>;
+    // Same grid shape (column counts, gaps, aspect-square tiles) the real grid below renders once
+    // data arrives, sized to `limit` placeholders — a plain "Loading…" line here used to leave
+    // this whole section just a few pixels tall until the fetch resolved, then jump to several
+    // rows tall all at once. Harmless-looking on its own, but that jump shifts every anchor target
+    // below it (e.g. #explore) out from under a scroll that already landed before this fetch
+    // finished — reserving the same footprint up front keeps that scroll position stable instead.
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" aria-hidden>
+        {Array.from({ length: limit }, (_, i) => (
+          <div key={i} className="aspect-square animate-pulse rounded-lg bg-slate-900" />
+        ))}
+      </div>
+    );
   }
   if (state.status === "error") {
     return <p className="text-rose-400">{state.message}</p>;

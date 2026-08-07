@@ -81,7 +81,13 @@ export default function SkyMapSection() {
             pa={liveJob?.pa}
           />
         ) : (
-          <p className="text-slate-500">Loading sky map…</p>
+          // Same "sky-map" class the real widget's own outer box uses (aspect-ratio: 16/9, see
+          // skymap-widget's SkyMap.css) rather than a bare line of text — a plain <p> here left
+          // this section just a few pixels tall until PublicSkyMap actually mounted, then jumped
+          // to the map's full height all at once. Harmless on its own, but that jump shifts every
+          // anchor target further down the page (e.g. #explore) out from under a scroll that
+          // already landed before this one finished loading.
+          <div className="sky-map flex items-center justify-center text-slate-500">Loading sky map…</div>
         )}
       </div>
     </Section>

@@ -23,11 +23,15 @@ interface StatsData {
   pageViews: number;
   exploreUses: number;
   exploredUsernames: Record<string, number>;
+  /** Epoch ms of each username's most recent lookup — keyed the same as exploredUsernames.
+   *  Merged in via emptyStats's spread in readStats, so a counters.json written before this field
+   *  existed just comes back with an empty object here instead of throwing. */
+  lastExploredAt: Record<string, number>;
   donateClicks: number;
 }
 
 function emptyStats(): StatsData {
-  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {}, donateClicks: 0 };
+  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {}, lastExploredAt: {}, donateClicks: 0 };
 }
 
 async function readStats(): Promise<StatsData> {
@@ -57,6 +61,7 @@ export async function recordExploreUse(username: string): Promise<void> {
   stats.exploreUses += 1;
   const key = username.toLowerCase();
   stats.exploredUsernames[key] = (stats.exploredUsernames[key] ?? 0) + 1;
+  stats.lastExploredAt[key] = Date.now();
   await writeStats(stats);
 }
 

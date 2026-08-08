@@ -40,8 +40,8 @@ export default async function StatsPage({
   return (
     <Section id="stats" eyebrow="Owner only" title="Usage stats">
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Page views" value={stats.pageViews} />
-        <Stat label="Explore uses" value={stats.exploreUses} />
+        <Stat label="Distinct page views" value={stats.pageViews} />
+        <Stat label="Distinct explore uses" value={stats.exploreUses} />
         <Stat label="Donate clicks" value={stats.donateClicks} />
         <Stat label="Tracking since" value={formatDate(stats.since)} />
       </dl>

@@ -48,14 +48,19 @@ async function writeStats(data: StatsData): Promise<void> {
   await writeFile(STATS_FILE, JSON.stringify(data));
 }
 
+/** Called by PageViewBeacon, already deduped client-side (its own DEDUPE_WINDOW_MS) — a reload or
+ *  repeat visit within that window doesn't call this again, so this counts distinct-ish visits
+ *  rather than every render. */
 export async function recordPageView(): Promise<void> {
   const stats = await readStats();
   stats.pageViews += 1;
   await writeStats(stats);
 }
 
-/** Only called for a username other than the site owner's own — see the footprints route, which
- *  is also what backs the owner's own Sky map section and shouldn't inflate this count. */
+/** Called by POST /api/stats/explore-use, once per lookup, already deduped client-side
+ *  (ExploreSection's own EXPLORE_DEDUPE_WINDOW_MS) and filtered to exclude the site owner's own
+ *  username — so exploreUses/exploredUsernames/lastExploredAt all reflect distinct explore actions,
+ *  not raw hits on the (also internally-reused) footprints route. */
 export async function recordExploreUse(username: string): Promise<void> {
   const stats = await readStats();
   stats.exploreUses += 1;

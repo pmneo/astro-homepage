@@ -12,6 +12,32 @@ type IndexState =
 
 const SHARE_QUERY_PARAM = "astrobin";
 
+const EXPLORE_DEDUPE_STORAGE_KEY = "explore.lastRecordedAt";
+// Same reasoning/window as PageViewBeacon's own dedupe — re-submitting the same username, or
+// reloading on a shared link, within this window doesn't count again. Per-username (not a single
+// timestamp) since one browser session can legitimately explore several different galleries.
+const EXPLORE_DEDUPE_WINDOW_MS = 60 * 60 * 1000;
+
+/** True (and records the attempt) the first time this browser looks up `username` in the current
+ *  dedupe window; false every time after, until the window elapses. */
+function shouldRecordExploreUse(username: string): boolean {
+  const key = username.trim().toLowerCase();
+  let recordedAt: Record<string, number> = {};
+  try {
+    recordedAt = JSON.parse(localStorage.getItem(EXPLORE_DEDUPE_STORAGE_KEY) ?? "{}");
+  } catch {
+    // Storage disabled/unavailable — fall through and record every lookup instead of none.
+  }
+  if (Date.now() - (recordedAt[key] ?? 0) < EXPLORE_DEDUPE_WINDOW_MS) return false;
+  recordedAt[key] = Date.now();
+  try {
+    localStorage.setItem(EXPLORE_DEDUPE_STORAGE_KEY, JSON.stringify(recordedAt));
+  } catch {
+    // Worst case this fires again next lookup instead of respecting the window.
+  }
+  return true;
+}
+
 function shareUrlFor(username: string): string {
   const url = new URL(window.location.href);
   url.search = `?${SHARE_QUERY_PARAM}=${encodeURIComponent(username)}`;
@@ -129,7 +155,16 @@ function AstrobinIndexGate({ username }: { username: string }) {
         if (!res.ok) {
           throw new Error(res.status === 404 ? `No AstroBin user named "${username}"` : "AstroBin is unreachable right now");
         }
-        if (!cancelled) setState({ status: "ready" });
+        if (!cancelled) {
+          setState({ status: "ready" });
+          if (shouldRecordExploreUse(username)) {
+            fetch("/api/stats/explore-use", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username }),
+            }).catch(() => {});
+          }
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setState({ status: "error", message: err.message });

@@ -21,7 +21,10 @@ const STATS_FILE = path.join(STATS_DIR, "counters.json");
 interface StatsData {
   since: number;
   pageViews: number;
-  exploreUses: number;
+  /** Distinct explore "uses" is just Object.keys(exploredUsernames).length — there's no separate
+   *  running counter for it, since a per-visit tally would count repeat lookups of the same
+   *  username as more "use" rather than more reach. exploredUsernames itself still counts each
+   *  distinct-visit lookup per username (see recordExploreUse). */
   exploredUsernames: Record<string, number>;
   /** Epoch ms of each username's most recent lookup — keyed the same as exploredUsernames.
    *  Merged in via emptyStats's spread in readStats, so a counters.json written before this field
@@ -31,7 +34,7 @@ interface StatsData {
 }
 
 function emptyStats(): StatsData {
-  return { since: Date.now(), pageViews: 0, exploreUses: 0, exploredUsernames: {}, lastExploredAt: {}, donateClicks: 0 };
+  return { since: Date.now(), pageViews: 0, exploredUsernames: {}, lastExploredAt: {}, donateClicks: 0 };
 }
 
 async function readStats(): Promise<StatsData> {
@@ -59,11 +62,10 @@ export async function recordPageView(): Promise<void> {
 
 /** Called by POST /api/stats/explore-use, once per lookup, already deduped client-side
  *  (ExploreSection's own EXPLORE_DEDUPE_WINDOW_MS) and filtered to exclude the site owner's own
- *  username — so exploreUses/exploredUsernames/lastExploredAt all reflect distinct explore actions,
- *  not raw hits on the (also internally-reused) footprints route. */
+ *  username — so exploredUsernames/lastExploredAt both reflect distinct explore actions, not raw
+ *  hits on the (also internally-reused) footprints route. */
 export async function recordExploreUse(username: string): Promise<void> {
   const stats = await readStats();
-  stats.exploreUses += 1;
   const key = username.toLowerCase();
   stats.exploredUsernames[key] = (stats.exploredUsernames[key] ?? 0) + 1;
   stats.lastExploredAt[key] = Date.now();
